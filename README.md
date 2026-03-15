@@ -165,7 +165,25 @@ cd everything-claude-code
 # ./install.sh --target antigravity typescript
 ```
 
-For manual install instructions see the README in the `rules/` folder.
+Or install manually without the script:
+
+```bash
+# Clone the repo first
+git clone https://github.com/affaan-m/everything-claude-code.git
+
+# Option A: User-level rules (applies to all projects)
+mkdir -p ~/.claude/rules
+cp -r everything-claude-code/rules/common/* ~/.claude/rules/
+cp -r everything-claude-code/rules/typescript/* ~/.claude/rules/   # pick your stack
+cp -r everything-claude-code/rules/python/* ~/.claude/rules/
+cp -r everything-claude-code/rules/golang/* ~/.claude/rules/
+cp -r everything-claude-code/rules/php/* ~/.claude/rules/
+
+# Option B: Project-level rules (applies to current project only)
+mkdir -p .claude/rules
+cp -r everything-claude-code/rules/common/* .claude/rules/
+cp -r everything-claude-code/rules/typescript/* .claude/rules/     # pick your stack
+```
 
 ### Step 3: Start Using
 
