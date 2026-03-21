@@ -1,5 +1,5 @@
 """Unit tests for ThresholdStrategy."""
-import pytest
+import pytest  # noqa: F401 — used for pytest.approx
 
 from polymarket_platform.strategy.base import MarketSnapshot
 from polymarket_platform.strategy.threshold import ThresholdParams, ThresholdStrategy
@@ -15,9 +15,10 @@ def snap(bid: float, ask: float, pos: float = 0.0) -> MarketSnapshot:
 
 def test_buy_at_threshold() -> None:
     s = ThresholdStrategy(PARAMS)
+    # ask == threshold → edge = 0 (paying exactly fair value); still a BUY signal
     d = s.decide(snap(bid=0.40, ask=0.45))
     assert d.action == "BUY"
-    assert d.expected_edge_bps > 0
+    assert d.expected_edge_bps == pytest.approx(0.0, abs=0.01)
 
 
 def test_buy_below_threshold() -> None:

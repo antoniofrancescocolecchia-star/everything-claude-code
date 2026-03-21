@@ -35,7 +35,10 @@ def run(
     store = SqliteStore(cfg.sqlite_path)
     engine = build_from_settings(cfg, store)
 
-    asyncio.run(engine.run())
+    try:
+        asyncio.run(engine.run())
+    finally:
+        store.close()
 
 
 @app.command(name="cancel-all")

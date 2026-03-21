@@ -112,7 +112,11 @@ class TradingEngine:
         cb: CircuitBreaker,
         orders: OrderManager,
         quote_queue: "asyncio.Queue[Quote]",
+        external_feed: bool = False,
     ) -> None:
+        # When external_feed=True the engine skips WS/REST startup and reads
+        # only from the injected quote_queue (used in tests and custom feeds).
+        self._external_feed = external_feed
         self._cfg = cfg
         self._clob = clob
         self._data_api = data_api
@@ -172,11 +176,12 @@ class TradingEngine:
 
         tasks: list[asyncio.Task] = []
 
-        # Primary WS feed; falls back to REST automatically after repeated failures
-        feed_task = asyncio.create_task(
-            self._managed_feed(ws_feed, rest_feed, stop), name="feed"
-        )
-        tasks.append(feed_task)
+        if not self._external_feed:
+            # Primary WS feed; falls back to REST automatically after repeated failures
+            tasks.append(
+                asyncio.create_task(self._managed_feed(ws_feed, rest_feed, stop), name="feed")
+            )
+
         tasks.append(
             asyncio.create_task(self._position_loop(stop), name="position-refresh")
         )
@@ -195,7 +200,8 @@ class TradingEngine:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        await rest_feed.close()
+        if not self._external_feed:
+            await rest_feed.close()
 
     async def _managed_feed(
         self, ws_feed: WsFeed, rest_feed: RestFeed, stop: asyncio.Event
@@ -423,5 +429,5 @@ class TradingEngine:
         self._clob.shutdown()
         with contextlib.suppress(Exception):
             await self._data_api.close()
-        self._store.close()
+        # Store lifecycle is managed by the caller (CLI / test) — not closed here.
         log.info("engine stopped")

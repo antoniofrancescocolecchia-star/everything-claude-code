@@ -72,6 +72,7 @@ def build_engine(
         cb=cb,
         orders=orders,
         quote_queue=queue,
+        external_feed=True,  # skip WS/REST; tests inject quotes directly
     )
     return engine, queue, s
 
@@ -81,14 +82,14 @@ async def run_with_quotes(
     cfg_overrides: dict | None = None,
     **kwargs: Any,
 ) -> SqliteStore:
-    """Run the engine for the given list of quotes then stop."""
+    """Run the engine for the given list of quotes then stop. Caller owns store."""
     engine, queue, store = build_engine(cfg_overrides, **kwargs)
     stop = asyncio.Event()
 
     async def feed_quotes() -> None:
-        for q in quotes:
-            await queue.put(q)
-        # Give engine time to process
+        for quote in quotes:
+            await queue.put(quote)
+        # Give engine time to process all queued quotes
         await asyncio.sleep(0.1)
         stop.set()
 
@@ -96,6 +97,7 @@ async def run_with_quotes(
         engine.run(stop),
         feed_quotes(),
     )
+    # Store is still open — caller can query it; close when done
     return store
 
 
