@@ -20,7 +20,7 @@ from polymarket_platform.execution.order_manager import OrderManager
 from polymarket_platform.feed.base import FeedSource, Quote
 from polymarket_platform.risk.manager import RiskLimits, RiskManager
 from polymarket_platform.strategy.threshold import ThresholdParams, ThresholdStrategy
-from tests.conftest import MockClobExecutor, MockDataApiClient, TOKEN_ID, make_settings
+from tests.conftest import TOKEN_ID, MockClobExecutor, MockDataApiClient, make_settings
 
 
 def build_engine(
@@ -49,7 +49,9 @@ def build_engine(
         ),
         s,
     )
-    gate = ProfitabilityGate(fee_taker_bps=cfg.fee_taker_bps, min_edge_bps=cfg.min_expected_edge_bps)
+    gate = ProfitabilityGate(
+        fee_taker_bps=cfg.fee_taker_bps, min_edge_bps=cfg.min_expected_edge_bps
+    )
     cb = CircuitBreaker(
         CBConfig(
             max_consecutive_losses=cfg.cb_max_consecutive_losses,

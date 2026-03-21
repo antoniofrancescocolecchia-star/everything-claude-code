@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from polymarket_platform.db.store import SqliteStore
 
 
-class CBState(str, Enum):
+class CBState(StrEnum):
     CLOSED = "CLOSED"       # Normal operation
     OPEN = "OPEN"           # Tripped — all trading halted
 

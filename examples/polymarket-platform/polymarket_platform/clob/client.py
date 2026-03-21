@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, TypeVar
 
 from py_clob_client.client import ClobClient
 from py_clob_client.clob_types import ApiCreds, MarketOrderArgs, OrderType
@@ -87,7 +88,7 @@ class ClobExecutor:
     async def cancel_all(self) -> Any:
         return await self._run(lambda: self._client.cancel_all())
 
-    async def post_heartbeat(self, heartbeat_id: Optional[str]) -> dict[str, Any]:
+    async def post_heartbeat(self, heartbeat_id: str | None) -> dict[str, Any]:
         hb_id = heartbeat_id
         return await self._run(lambda: self._client.post_heartbeat(hb_id))
 

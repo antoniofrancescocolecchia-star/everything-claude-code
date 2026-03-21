@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import Any
 
 import websockets
@@ -114,7 +113,7 @@ class WsFeed:
                 attempt += 1
                 try:
                     await asyncio.wait_for(stop.wait(), timeout=delay)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
 
     async def _connect(
@@ -142,7 +141,7 @@ class WsFeed:
             while not stop.is_set():
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=25.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     log.debug("WS recv timeout — sending ping")
                     await ws.ping()
                     continue

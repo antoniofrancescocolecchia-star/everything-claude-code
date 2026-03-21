@@ -10,7 +10,10 @@ PARAMS = ThresholdParams(buy_threshold=0.45, sell_threshold=0.55)
 
 def snap(bid: float, ask: float, pos: float = 0.0) -> MarketSnapshot:
     import time
-    return MarketSnapshot(token_id=TOKEN, best_bid=bid, best_ask=ask, position_shares=pos, ts=time.time())
+
+    return MarketSnapshot(
+        token_id=TOKEN, best_bid=bid, best_ask=ask, position_shares=pos, ts=time.time()
+    )
 
 
 def test_buy_at_threshold() -> None:

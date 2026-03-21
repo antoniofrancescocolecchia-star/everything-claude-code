@@ -1,5 +1,4 @@
 """Unit tests for RiskManager."""
-import time
 
 import pytest
 

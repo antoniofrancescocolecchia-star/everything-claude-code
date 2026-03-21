@@ -21,12 +21,60 @@ Feed (WS primary, REST fallback)
 
 **Key design decisions:**
 - `ClobExecutor` bridges sync `py-clob-client` via `ThreadPoolExecutor(max_workers=1)` — serial without blocking the event loop
-- Signal handling via `loop.add_signal_handler()` — asyncio-safe
+- Signal handling is Windows-safe: `loop.add_signal_handler()` is wrapped so `NotImplementedError` on Windows ProactorEventLoop is silently skipped
 - Risk state persisted as a SQLite singleton row — survives restarts
 - Schema versioned with integer migrations — safe to extend
 - All closures use explicit default-argument capture — no late-binding bugs
 
-## Setup
+## Windows Quick Start (One-Click)
+
+**No WSL. No manual setup. Just double-click.**
+
+1. **Double-click `Start-Polymarket.cmd`**
+
+   First run automatically:
+   - Creates `.venv` with Python 3.12
+   - Installs all dependencies
+   - Creates `.env` from `.env.example`
+   - Runs a setup wizard to ask for `POLY_TOKEN_ID` and mode
+
+2. **Answer the setup wizard** (first run only)
+   - Choose dry-run or live mode
+   - Enter your Token ID (find it on Polymarket)
+   - Live mode: enter private key and funder address
+
+3. **Subsequent runs** — double-click `Start-Polymarket.cmd` again. No prompts.
+
+### Switch between dry-run and live mode
+
+Edit `.env` directly:
+```
+BOT_DRY_RUN=true    # paper trading
+BOT_DRY_RUN=false   # live trading (requires POLY_PRIVATE_KEY)
+```
+
+### Change TOKEN_ID later
+
+Option 1 — edit `.env` and change `POLY_TOKEN_ID=...`
+
+Option 2 — re-run the setup wizard:
+```
+powershell -ExecutionPolicy Bypass -File scripts\setup_config.ps1
+```
+
+### Validate your environment
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\check_windows.ps1
+```
+
+Checks Python, .venv, .env values, tests, and lint. Exits non-zero on failure.
+
+### Emergency stop
+
+Create a file named `KILL_SWITCH` in the project folder. The bot detects it and stops.
+
+## Setup (Linux / macOS)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -51,8 +99,10 @@ polymarket cancel-all
 # Status report (reads SQLite)
 polymarket status
 
-# Kill switch (from another terminal)
+# Kill switch (from another terminal / file explorer)
+# Linux/macOS:
 touch ./KILL_SWITCH
+# Windows: create an empty file named KILL_SWITCH in the project folder
 ```
 
 ## Implementing a custom strategy

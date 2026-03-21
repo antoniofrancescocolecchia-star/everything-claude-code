@@ -24,7 +24,7 @@ class RiskManager:
     __init__ so limits survive process restarts.
     """
 
-    def __init__(self, limits: RiskLimits, store: "SqliteStore") -> None:
+    def __init__(self, limits: RiskLimits, store: SqliteStore) -> None:
         self._limits = limits
         self._store = store
         # Load persisted state; falls back to zero if no row exists
@@ -80,6 +80,8 @@ class RiskManager:
         """Call after a successful order submission to update and persist state."""
         from polymarket_platform.db.store import RiskState
 
-        new_usd = self._state.usd_spent + buy_amount_usd if action == "BUY" else self._state.usd_spent
+        new_usd = (
+            self._state.usd_spent + buy_amount_usd if action == "BUY" else self._state.usd_spent
+        )
         self._state = RiskState(usd_spent=new_usd, last_order_ts=time.time())
         self._store.save_risk_state(self._state)

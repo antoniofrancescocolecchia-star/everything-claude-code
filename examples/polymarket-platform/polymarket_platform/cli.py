@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
-from typing import Optional
 
 import typer
 
@@ -16,7 +13,7 @@ app = typer.Typer(
 
 @app.command()
 def run(
-    config: Optional[str] = typer.Option(None, "--config", "-c", help="Path to .env file"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to .env file"),
 ) -> None:
     """Start the trading engine (dry-run by default)."""
     import os
@@ -94,7 +91,7 @@ def status() -> None:
 
     # Risk state
     rs = store.load_risk_state()
-    typer.echo(f"\n[Risk State]")
+    typer.echo("\n[Risk State]")
     typer.echo(f"  USD spent (cumulative): ${rs.usd_spent:.2f}")
     import time
     last_order_age = time.time() - rs.last_order_ts if rs.last_order_ts > 0 else None
@@ -105,7 +102,7 @@ def status() -> None:
 
     # Circuit breaker
     cb_event = store.get_last_circuit_breaker_event()
-    typer.echo(f"\n[Circuit Breaker]")
+    typer.echo("\n[Circuit Breaker]")
     if cb_event:
         typer.echo(f"  Last event: {cb_event['reason']} (ts={cb_event['ts']:.0f})")
     else:
@@ -113,7 +110,7 @@ def status() -> None:
 
     # PnL summary
     pnl = store.get_pnl_summary()
-    typer.echo(f"\n[PnL Summary]")
+    typer.echo("\n[PnL Summary]")
     if pnl.get("total_fills"):
         typer.echo(f"  Total fills:   {pnl['total_fills']}")
         typer.echo(f"  Gross PnL:     ${pnl['gross_pnl_usd'] or 0:.4f}")
@@ -127,7 +124,7 @@ def status() -> None:
 
     # Last decisions
     decisions = store.get_decisions(limit=5)
-    typer.echo(f"\n[Last 5 Decisions]")
+    typer.echo("\n[Last 5 Decisions]")
     if decisions:
         for d in decisions:
             import datetime
@@ -141,7 +138,7 @@ def status() -> None:
 
     # Last orders
     orders = store.get_orders(limit=5)
-    typer.echo(f"\n[Last 5 Orders]")
+    typer.echo("\n[Last 5 Orders]")
     if orders:
         for o in orders:
             import datetime

@@ -46,7 +46,8 @@ class SqliteStore:
         ts = ts if ts is not None else time.time()
         with self._lock:
             cur = self._conn.execute(
-                "INSERT INTO quotes (ts, token_id, best_bid, best_ask, feed_source) VALUES (?,?,?,?,?)",
+                "INSERT INTO quotes"
+                " (ts, token_id, best_bid, best_ask, feed_source) VALUES (?,?,?,?,?)",
                 (ts, token_id, best_bid, best_ask, feed_source),
             )
             self._conn.commit()

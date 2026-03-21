@@ -1,5 +1,4 @@
 """Unit tests for CircuitBreaker."""
-import pytest
 
 from polymarket_platform.circuit_breaker import CBConfig, CBState, CircuitBreaker
 from polymarket_platform.db.store import SqliteStore

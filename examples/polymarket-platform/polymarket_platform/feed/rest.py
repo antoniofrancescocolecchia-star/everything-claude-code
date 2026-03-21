@@ -79,7 +79,7 @@ class RestFeed:
 
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self._interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def close(self) -> None:

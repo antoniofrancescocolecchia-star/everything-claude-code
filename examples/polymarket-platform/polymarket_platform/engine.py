@@ -7,7 +7,6 @@ import os
 import signal
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 from polymarket_platform.circuit_breaker import CBConfig, CBState, CircuitBreaker
 from polymarket_platform.clob.client import ClobConfig, ClobExecutor
@@ -15,7 +14,7 @@ from polymarket_platform.config import Settings
 from polymarket_platform.db.store import SqliteStore
 from polymarket_platform.execution.gate import ProfitabilityGate
 from polymarket_platform.execution.order_manager import OrderManager, OrderSizing
-from polymarket_platform.feed.base import FeedSource, Quote
+from polymarket_platform.feed.base import Quote
 from polymarket_platform.feed.rest import RestFeed
 from polymarket_platform.feed.websocket import WsFeed
 from polymarket_platform.market.data_api import DataApiClient
@@ -33,7 +32,7 @@ class _EngineState:
     last_quote_ts: float = 0.0
 
 
-def build_from_settings(cfg: Settings, store: SqliteStore) -> "TradingEngine":
+def build_from_settings(cfg: Settings, store: SqliteStore) -> TradingEngine:
     """Convenience factory — builds a fully-wired engine from Settings."""
     clob_cfg = ClobConfig(
         host=cfg.clob_host,
@@ -111,7 +110,7 @@ class TradingEngine:
         gate: ProfitabilityGate,
         cb: CircuitBreaker,
         orders: OrderManager,
-        quote_queue: "asyncio.Queue[Quote]",
+        quote_queue: asyncio.Queue[Quote],
         external_feed: bool = False,
     ) -> None:
         # When external_feed=True the engine skips WS/REST startup and reads
@@ -129,9 +128,29 @@ class TradingEngine:
         self._queue = quote_queue
         self._state = _EngineState()
 
+    # ── Signal handling (Windows-safe) ───────────────────────────────────────
+
+    def _install_signal_handlers(
+        self, loop: asyncio.AbstractEventLoop, stop: asyncio.Event
+    ) -> None:
+        """Install SIGINT/SIGTERM handlers. No-ops on Windows (NotImplementedError)."""
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except (NotImplementedError, RuntimeError, AttributeError):
+                pass
+
+    def _remove_signal_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Remove signal handlers. Safe to call on Windows."""
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.remove_signal_handler(sig)
+            except (NotImplementedError, RuntimeError, AttributeError):
+                pass
+
     # ── Public entry point ────────────────────────────────────────────────────
 
-    async def run(self, stop: Optional[asyncio.Event] = None) -> None:
+    async def run(self, stop: asyncio.Event | None = None) -> None:
         """
         Run the engine until `stop` is set, SIGINT, or SIGTERM.
         If `stop` is not provided, one is created internally.
@@ -140,8 +159,7 @@ class TradingEngine:
             stop = asyncio.Event()
 
         loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, stop.set)
+        self._install_signal_handlers(loop, stop)
 
         log.info(
             "engine starting strategy=%s dry_run=%s token_id=%s",
@@ -153,9 +171,7 @@ class TradingEngine:
         try:
             await self._run_loop(stop)
         finally:
-            for sig in (signal.SIGINT, signal.SIGTERM):
-                with contextlib.suppress(Exception):
-                    loop.remove_signal_handler(sig)
+            self._remove_signal_handlers(loop)
             await self._shutdown()
 
     # ── Internal loop ─────────────────────────────────────────────────────────
@@ -221,7 +237,7 @@ class TradingEngine:
         while not stop.is_set():
             try:
                 quote = await asyncio.wait_for(self._queue.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Check feed staleness
                 if self._state.last_quote_ts > 0:
                     staleness = time.time() - self._state.last_quote_ts
@@ -376,12 +392,12 @@ class TradingEngine:
                 await asyncio.wait_for(
                     stop.wait(), timeout=self._cfg.position_refresh_interval_seconds
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _heartbeat_loop(self, stop: asyncio.Event) -> None:
         """Send heartbeats to keep resting orders alive (GTC strategies)."""
-        heartbeat_id: Optional[str] = ""
+        heartbeat_id: str | None = ""
         while not stop.is_set():
             with contextlib.suppress(Exception):
                 resp = await with_retries(
@@ -400,7 +416,7 @@ class TradingEngine:
                 await asyncio.wait_for(
                     stop.wait(), timeout=self._cfg.heartbeat_interval_seconds
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def _kill_switch_loop(self, stop: asyncio.Event) -> None:

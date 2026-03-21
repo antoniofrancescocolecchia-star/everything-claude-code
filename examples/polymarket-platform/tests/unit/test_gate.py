@@ -1,5 +1,4 @@
 """Unit tests for ProfitabilityGate."""
-import pytest
 
 from polymarket_platform.execution.gate import ProfitabilityGate
 from polymarket_platform.strategy.base import Decision
