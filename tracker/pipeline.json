@@ -5,5 +5,43 @@
   "_maintained_by": "zhaitap-tracker agent",
   "_approval_protocol": "Status changes to contacted / replied / approved_to_use require explicit Antonio confirmation before writing",
   "_last_updated": "2026-03-21",
-  "records": []
+  "records": [
+    {
+      "company": "NatPower Kazakhstan",
+      "country": "Kazakhstan",
+      "category": "renewable energy developer",
+      "tier": 1,
+      "tier_rationale": "Office presence in Almaty and publicly stated solar pipeline in Almaty Region",
+      "contacts": [
+        {
+          "name": "Fabrizio Zago",
+          "title": "CEO & Founder",
+          "source": "LinkedIn",
+          "contact_status": "LinkedIn profile found, consistent with company info",
+          "channel": "LinkedIn"
+        },
+        {
+          "name": "Andrea Bonomi",
+          "title": "Managing Director Rest of World",
+          "source": "Company website",
+          "contact_status": "role listed on company website, no direct profile found",
+          "channel": "unknown"
+        }
+      ],
+      "channels": ["LinkedIn", "unknown"],
+      "status": "not_researched",
+      "source": "Shortlisted by Antonio — office presence in Almaty, publicly stated solar pipeline in Almaty Region",
+      "record_type": "company",
+      "data_maturity": "inferred",
+      "first_contact_date": null,
+      "last_contact_date": null,
+      "channel_used": null,
+      "response": null,
+      "next_action_suggestion": "Not yet approved",
+      "approval_status": "Pending Antonio review",
+      "blockers": null,
+      "last_updated": "2026-03-21",
+      "notes": "COMMERCIAL INFERENCE: Presence in Almaty Region and stated solar pipeline suggest potential relevance for a land-based development discussion, but this is not verified fit. LIMITATION: No Scout report has been run yet. Contact details are surface-level only. No verified direct email address for either contact. CONTEXT: NatPower is treated here as a Kazakhstan operating target; parent or founder nationality can be captured later in Scout research. CONFIDENCE: Low at this stage — record is seeded from Antonio's shortlist, not independently researched."
+    }
+  ]
 }
