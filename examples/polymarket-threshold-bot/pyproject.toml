@@ -1,0 +1,30 @@
+[project]
+name = "polymarket-threshold-bot"
+version = "0.1.0"
+description = "Polymarket threshold trading bot (CLOB + Data API) with dry-run, risk controls, sqlite, retries."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "python-dotenv>=1.0",
+  "httpx>=0.27",
+  "py-clob-client>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.4",
+]
+
+[project.scripts]
+polymarket-bot = "polymarket_bot.main:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

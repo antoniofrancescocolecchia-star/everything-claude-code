@@ -1,0 +1,40 @@
+[project]
+name = "polymarket-platform"
+version = "0.1.0"
+description = "Modular Polymarket trading platform: fee-aware execution, strategy plugins, circuit breaker, SQLite persistence."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "python-dotenv>=1.0",
+  "httpx>=0.27",
+  "websockets>=12.0",
+  "typer>=0.12",
+  # Pin py-clob-client exactly once tested; avoid silent API breaks.
+  # Example: "py-clob-client==0.34.2"
+  # For initial install, the minimum known-good version is used:
+  "py-clob-client>=0.34.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.4",
+  "aioresponses>=0.7",
+]
+
+[project.scripts]
+polymarket = "polymarket_platform.cli:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
