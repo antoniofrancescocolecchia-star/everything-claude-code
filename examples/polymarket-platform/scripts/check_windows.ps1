@@ -1,159 +1,215 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Validate the Polymarket Platform environment on Windows.
-
-.DESCRIPTION
-    Checks:
-      - Python 3.12 available
-      - .venv exists and has the package installed
-      - .env exists and required variables are set
-      - Tests pass
-      - Ruff lint passes
-    Exits with code 0 on full pass, 1 on any failure.
-#>
-
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Continue'  # Keep going to show all issues
+$ErrorActionPreference = 'Continue'
 
+# ---------------------------------------------------------------------------
+# Locate project root (parent of scripts/)
+# ---------------------------------------------------------------------------
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $Failures   = 0
 
-function Pass  { param([string]$msg) Write-Host "  [PASS] $msg" -ForegroundColor Green }
-function Fail  { param([string]$msg) Write-Host "  [FAIL] $msg" -ForegroundColor Red; $script:Failures++ }
-function Warn  { param([string]$msg) Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
-function Section { param([string]$title) Write-Host ""; Write-Host "--- $title ---" -ForegroundColor Cyan }
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+function Write-Pass {
+    param([string]$Msg)
+    Write-Host "  [PASS] $Msg" -ForegroundColor Green
+}
+
+function Write-Fail {
+    param([string]$Msg)
+    Write-Host "  [FAIL] $Msg" -ForegroundColor Red
+    $script:Failures++
+}
+
+function Write-Warn {
+    param([string]$Msg)
+    Write-Host "  [WARN] $Msg" -ForegroundColor Yellow
+}
+
+function Write-Section {
+    param([string]$Title)
+    Write-Host ""
+    Write-Host "--- $Title ---" -ForegroundColor Cyan
+}
 
 Write-Host ""
-Write-Host "=== Polymarket Platform — Environment Check ===" -ForegroundColor Cyan
-Write-Host "    Root: $ProjectDir" -ForegroundColor DarkGray
+Write-Host "=== Polymarket Platform - Environment Check ===" -ForegroundColor Cyan
+Write-Host "Root: $ProjectDir" -ForegroundColor DarkGray
 
-# ── Python ────────────────────────────────────────────────────────────────────
-Section "Python"
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+Write-Section "Python"
 $PyFound = $false
-foreach ($candidate in @('py -3.12', 'python3.12', 'python')) {
+
+foreach ($cand in @('py', 'python3.12', 'python')) {
     try {
-        $ver = & cmd /c "$candidate --version 2>&1"
-        if ($ver -match '3\.1[2-9]') {
-            Pass "Python: $ver"
+        if ($cand -eq 'py') {
+            $verStr = "$(& py -3.12 --version 2>&1)"
+        }
+        else {
+            $verStr = "$(& $cand --version 2>&1)"
+        }
+        if ($verStr -match '3\.[1-9][2-9]') {
+            Write-Pass "Python: $verStr"
             $PyFound = $true
             break
         }
-    } catch { }
+    }
+    catch {
+        # try next candidate
+    }
 }
-if (-not $PyFound) { Fail "Python 3.12 not found in PATH" }
 
-# ── Virtual environment ───────────────────────────────────────────────────────
-Section "Virtual Environment"
+if (-not $PyFound) {
+    Write-Fail "Python 3.12+ not found in PATH"
+}
+
+# ---------------------------------------------------------------------------
+# Virtual environment
+# ---------------------------------------------------------------------------
+Write-Section "Virtual Environment"
 $VenvPy = Join-Path $ProjectDir '.venv\Scripts\python.exe'
 
 if (Test-Path $VenvPy) {
-    Pass ".venv exists at .venv\"
+    Write-Pass ".venv exists"
     $pkgCheck = & $VenvPy -c "import polymarket_platform; print('ok')" 2>&1
-    if ($pkgCheck -eq 'ok') {
-        Pass "polymarket_platform package importable"
-    } else {
-        Fail "polymarket_platform not installed in .venv (run Start-Polymarket.cmd to install)"
+    if ("$pkgCheck" -eq 'ok') {
+        Write-Pass "polymarket_platform package importable"
     }
-} else {
-    Fail ".venv not found — run Start-Polymarket.cmd to create it"
+    else {
+        Write-Fail "polymarket_platform not installed in .venv (run Start-Polymarket.cmd)"
+    }
+}
+else {
+    Write-Fail ".venv not found - run Start-Polymarket.cmd to create it"
 }
 
-# ── .env ─────────────────────────────────────────────────────────────────────
-Section ".env"
+# ---------------------------------------------------------------------------
+# .env
+# ---------------------------------------------------------------------------
+Write-Section ".env"
 $EnvFile = Join-Path $ProjectDir '.env'
 
 if (Test-Path $EnvFile) {
-    Pass ".env file exists"
+    Write-Pass ".env file exists"
 
     function Get-EnvVal {
         param([string]$Key)
-        $content = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
-        if ($content -match "(?m)^$Key=(.+)$") { return $Matches[1].Trim() }
+        $raw = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
+        if ($raw -match "(?m)^$Key=(.+)$") {
+            return $Matches[1].Trim()
+        }
         return $null
     }
 
-    # POLY_TOKEN_ID is the only truly required variable
     $tokenId = Get-EnvVal 'POLY_TOKEN_ID'
-    if ($tokenId -and $tokenId -ne 'YOUR_CLOB_TOKEN_ID') {
-        Pass "POLY_TOKEN_ID is set"
-    } else {
-        Fail "POLY_TOKEN_ID is missing or is still the placeholder value"
+    if ($tokenId -and ($tokenId -ne 'YOUR_CLOB_TOKEN_ID')) {
+        Write-Pass "POLY_TOKEN_ID is set"
+    }
+    else {
+        Write-Fail "POLY_TOKEN_ID is missing or still the placeholder value"
     }
 
     $dryRun = Get-EnvVal 'BOT_DRY_RUN'
     if ($dryRun -eq 'false') {
-        Warn "BOT_DRY_RUN=false — live trading mode"
+        Write-Warn "BOT_DRY_RUN=false - live trading mode"
         $privKey = Get-EnvVal 'POLY_PRIVATE_KEY'
-        if ($privKey -and $privKey -ne '0xYOUR_PRIVATE_KEY') {
-            Pass "POLY_PRIVATE_KEY is set (live mode)"
-        } else {
-            Fail "POLY_PRIVATE_KEY missing but BOT_DRY_RUN=false"
+        if ($privKey -and ($privKey -ne '0xYOUR_PRIVATE_KEY')) {
+            Write-Pass "POLY_PRIVATE_KEY is set (live mode)"
+        }
+        else {
+            Write-Fail "POLY_PRIVATE_KEY missing but BOT_DRY_RUN=false"
         }
         $funder = Get-EnvVal 'POLY_FUNDER_ADDRESS'
-        if ($funder -and $funder -ne '0xYOUR_FUNDER_ADDRESS') {
-            Pass "POLY_FUNDER_ADDRESS is set (live mode)"
-        } else {
-            Fail "POLY_FUNDER_ADDRESS missing but BOT_DRY_RUN=false"
+        if ($funder -and ($funder -ne '0xYOUR_FUNDER_ADDRESS')) {
+            Write-Pass "POLY_FUNDER_ADDRESS is set (live mode)"
         }
-    } else {
-        Pass "BOT_DRY_RUN=true (dry-run / paper trading)"
+        else {
+            Write-Fail "POLY_FUNDER_ADDRESS missing but BOT_DRY_RUN=false"
+        }
     }
-} else {
-    Fail ".env not found — run Start-Polymarket.cmd to create it"
+    else {
+        Write-Pass "BOT_DRY_RUN=true (dry-run mode)"
+    }
+}
+else {
+    Write-Fail ".env not found - run Start-Polymarket.cmd to create it"
 }
 
-# ── Tests ─────────────────────────────────────────────────────────────────────
-Section "Tests"
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+Write-Section "Tests"
+
 if (Test-Path $VenvPy) {
-    Write-Host "  Running pytest ..." -ForegroundColor DarkGray
-    $testOut = & $VenvPy -m pytest -q --tb=short 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0) {
-        $summary = ($testOut -split "`n" | Where-Object { $_ -match 'passed' } | Select-Object -Last 1).Trim()
-        Pass "pytest: $summary"
-    } else {
-        Fail "pytest failed"
-        Write-Host $testOut -ForegroundColor Red
+    Write-Host "  Running pytest..." -ForegroundColor DarkGray
+    $testOut  = & $VenvPy -m pytest -q --tb=short 2>&1
+    $testExit = $LASTEXITCODE
+    if ($testExit -eq 0) {
+        $summary = ($testOut | Where-Object { $_ -match 'passed' } | Select-Object -Last 1)
+        Write-Pass "pytest: $summary"
     }
-} else {
-    Warn "Skipping tests — .venv not found"
+    else {
+        Write-Fail "pytest failed"
+        $testOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    }
+}
+else {
+    Write-Warn "Skipping tests - .venv not found"
 }
 
-# ── Lint ──────────────────────────────────────────────────────────────────────
-Section "Ruff Lint"
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+Write-Section "Ruff Lint"
+
 if (Test-Path $VenvPy) {
-    $ruffOut = & $VenvPy -m ruff check . 2>&1 | Out-String
-    if ($LASTEXITCODE -eq 0) {
-        Pass "ruff: no issues"
-    } else {
-        Fail "ruff found issues:"
-        Write-Host $ruffOut -ForegroundColor Red
+    $ruffOut  = & $VenvPy -m ruff check . 2>&1
+    $ruffExit = $LASTEXITCODE
+    if ($ruffExit -eq 0) {
+        Write-Pass "ruff: no issues"
     }
-} else {
-    Warn "Skipping lint — .venv not found"
+    else {
+        Write-Fail "ruff found issues"
+        $ruffOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    }
+}
+else {
+    Write-Warn "Skipping lint - .venv not found"
 }
 
-# ── CLI ───────────────────────────────────────────────────────────────────────
-Section "CLI"
+# ---------------------------------------------------------------------------
+# CLI smoke test
+# ---------------------------------------------------------------------------
+Write-Section "CLI"
+
 if (Test-Path $VenvPy) {
-    $cliOut = & $VenvPy -m polymarket_platform.cli --help 2>&1 | Out-String
+    & $VenvPy -m polymarket_platform.cli --help 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Pass "polymarket_platform.cli --help works"
-    } else {
-        Fail "polymarket_platform.cli --help failed"
+        Write-Pass "polymarket_platform.cli --help works"
     }
-} else {
-    Warn "Skipping CLI check — .venv not found"
+    else {
+        Write-Fail "polymarket_platform.cli --help failed"
+    }
+}
+else {
+    Write-Warn "Skipping CLI check - .venv not found"
 }
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "─────────────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "---------------------------------------------" -ForegroundColor DarkGray
+
 if ($Failures -eq 0) {
     Write-Host "  All checks passed. Ready to run." -ForegroundColor Green
     exit 0
-} else {
+}
+else {
     Write-Host "  $Failures check(s) failed. See above." -ForegroundColor Red
     Write-Host "  Run Start-Polymarket.cmd to bootstrap the environment." -ForegroundColor Yellow
     exit 1

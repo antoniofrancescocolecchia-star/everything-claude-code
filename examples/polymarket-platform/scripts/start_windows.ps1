@@ -1,69 +1,70 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Bootstrap and launch the Polymarket Platform on Windows.
-
-.DESCRIPTION
-    - Detects project root from script location
-    - Creates .venv with py -3.12 if missing
-    - Installs/updates dependencies
-    - Creates .env from .env.example if missing
-    - Runs first-time config wizard if required settings are absent
-    - Starts the trading engine (dry-run by default)
-#>
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Project root ──────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Locate project root (parent of scripts/)
+# ---------------------------------------------------------------------------
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 
 Set-Location $ProjectDir
 Write-Host ""
 Write-Host "=== Polymarket Platform ===" -ForegroundColor Cyan
-Write-Host "    Root: $ProjectDir" -ForegroundColor DarkGray
+Write-Host "Root: $ProjectDir" -ForegroundColor DarkGray
 Write-Host ""
 
-# ── Python 3.12 ───────────────────────────────────────────────────────────────
-$PyExe = $null
-foreach ($candidate in @('py -3.12', 'python3.12', 'python')) {
+# ---------------------------------------------------------------------------
+# Locate Python 3.12+
+# ---------------------------------------------------------------------------
+$PyExe  = $null
+$PyArgs = @()
+
+foreach ($cand in @('py', 'python3.12', 'python')) {
     try {
-        $ver = & cmd /c "$candidate --version 2>&1"
-        if ($ver -match '3\.1[2-9]') {
-            # Resolve actual executable path
-            if ($candidate -eq 'py -3.12') {
-                $PyExe = 'py'
+        if ($cand -eq 'py') {
+            $verStr = "$(& py -3.12 --version 2>&1)"
+        }
+        else {
+            $verStr = "$(& $cand --version 2>&1)"
+        }
+        if ($verStr -match '3\.[1-9][2-9]') {
+            if ($cand -eq 'py') {
+                $PyExe  = 'py'
                 $PyArgs = @('-3.12')
-            } else {
-                $PyExe = $candidate
+            }
+            else {
+                $PyExe  = $cand
                 $PyArgs = @()
             }
-            Write-Host "Python found: $ver" -ForegroundColor Green
+            Write-Host "Python found: $verStr" -ForegroundColor Green
             break
         }
-    } catch { }
+    }
+    catch {
+        # try next candidate
+    }
 }
 
 if (-not $PyExe) {
-    Write-Host ""
-    Write-Host "ERROR: Python 3.12 not found." -ForegroundColor Red
-    Write-Host "  Install it from https://www.python.org/downloads/" -ForegroundColor Yellow
-    Write-Host "  Make sure 'Add to PATH' is checked during install." -ForegroundColor Yellow
-    Write-Host ""
+    Write-Host "ERROR: Python 3.12+ not found." -ForegroundColor Red
+    Write-Host "Install from https://www.python.org/downloads/ and tick 'Add to PATH'." -ForegroundColor Yellow
     Read-Host "Press Enter to exit"
     exit 1
 }
 
-# ── Virtual environment ───────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Virtual environment
+# ---------------------------------------------------------------------------
 $VenvDir = Join-Path $ProjectDir '.venv'
 $VenvPy  = Join-Path $VenvDir 'Scripts\python.exe'
 
 if (-not (Test-Path $VenvPy)) {
-    Write-Host "Creating virtual environment (.venv) ..." -ForegroundColor Yellow
+    Write-Host "Creating virtual environment (.venv)..." -ForegroundColor Yellow
     if ($PyExe -eq 'py') {
         & py -3.12 -m venv .venv
-    } else {
+    }
+    else {
         & $PyExe -m venv .venv
     }
     if ($LASTEXITCODE -ne 0) {
@@ -72,25 +73,42 @@ if (-not (Test-Path $VenvPy)) {
         exit 1
     }
     Write-Host "Virtual environment created." -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "Virtual environment found." -ForegroundColor Green
 }
 
-# ── Activate & upgrade pip ────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Activate and upgrade pip
+# ---------------------------------------------------------------------------
 $ActivateScript = Join-Path $VenvDir 'Scripts\Activate.ps1'
 if (Test-Path $ActivateScript) {
     . $ActivateScript
 }
 
-Write-Host "Upgrading pip ..." -ForegroundColor DarkGray
+Write-Host "Upgrading pip..." -ForegroundColor DarkGray
 & $VenvPy -m pip install --quiet --upgrade pip
 
-# ── Install / update dependencies ─────────────────────────────────────────────
-$EggInfo = Join-Path $ProjectDir 'polymarket_platform.egg-info'
+# ---------------------------------------------------------------------------
+# Install / update package (editable install)
+# ---------------------------------------------------------------------------
+$EggInfo   = Join-Path $ProjectDir 'polymarket_platform.egg-info'
 $Pyproject = Join-Path $ProjectDir 'pyproject.toml'
 
+$needsInstall = $false
 if (-not (Test-Path $EggInfo)) {
-    Write-Host "Installing package and dependencies (first run, may take a minute) ..." -ForegroundColor Yellow
+    $needsInstall = $true
+}
+else {
+    $projTime = (Get-Item $Pyproject).LastWriteTime
+    $eggTime  = (Get-Item $EggInfo).LastWriteTime
+    if ($projTime -gt $eggTime) {
+        $needsInstall = $true
+    }
+}
+
+if ($needsInstall) {
+    Write-Host "Installing package and dependencies..." -ForegroundColor Yellow
     & $VenvPy -m pip install --quiet -e ".[dev]"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: pip install failed. Check your internet connection." -ForegroundColor Red
@@ -98,52 +116,51 @@ if (-not (Test-Path $EggInfo)) {
         exit 1
     }
     Write-Host "Dependencies installed." -ForegroundColor Green
-} else {
-    # Sync only if pyproject.toml is newer than egg-info
-    $ProjMtime  = (Get-Item $PyProject).LastWriteTime
-    $EggMtime   = (Get-Item $EggInfo).LastWriteTime
-    if ($ProjMtime -gt $EggMtime) {
-        Write-Host "pyproject.toml changed — syncing dependencies ..." -ForegroundColor Yellow
-        & $VenvPy -m pip install --quiet -e ".[dev]"
-        Write-Host "Dependencies updated." -ForegroundColor Green
-    } else {
-        Write-Host "Dependencies up to date." -ForegroundColor Green
-    }
+}
+else {
+    Write-Host "Dependencies up to date." -ForegroundColor Green
 }
 
-# ── .env setup ───────────────────────────────────────────────────────────────
-$EnvFile     = Join-Path $ProjectDir '.env'
-$EnvExample  = Join-Path $ProjectDir '.env.example'
+# ---------------------------------------------------------------------------
+# Create .env from .env.example if not present
+# ---------------------------------------------------------------------------
+$EnvFile    = Join-Path $ProjectDir '.env'
+$EnvExample = Join-Path $ProjectDir '.env.example'
 
 if (-not (Test-Path $EnvFile)) {
     if (Test-Path $EnvExample) {
         Copy-Item $EnvExample $EnvFile
         Write-Host ".env created from .env.example" -ForegroundColor Yellow
-    } else {
+    }
+    else {
         New-Item -ItemType File -Path $EnvFile | Out-Null
         Write-Host ".env created (empty)" -ForegroundColor Yellow
     }
 }
 
-# ── First-run config wizard ───────────────────────────────────────────────────
-$SetupScript = Join-Path $ScriptDir 'setup_config.ps1'
-
+# ---------------------------------------------------------------------------
+# Helper: read a value from .env
+# ---------------------------------------------------------------------------
 function Get-EnvValue {
     param([string]$Key)
-    $content = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
-    if ($content -match "(?m)^$Key=(.+)$") {
+    $raw = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
+    if ($raw -match "(?m)^$Key=(.+)$") {
         return $Matches[1].Trim()
     }
     return $null
 }
 
-$TokenId = Get-EnvValue 'POLY_TOKEN_ID'
-$HasPlaceholderToken = $TokenId -eq 'YOUR_CLOB_TOKEN_ID' -or [string]::IsNullOrWhiteSpace($TokenId)
+# ---------------------------------------------------------------------------
+# Run setup wizard when required values are missing
+# ---------------------------------------------------------------------------
+$TokenId      = Get-EnvValue 'POLY_TOKEN_ID'
+$placeholders = @('YOUR_CLOB_TOKEN_ID', '', $null)
+$needsWizard  = ($placeholders -contains $TokenId)
 
-if ($HasPlaceholderToken) {
+if ($needsWizard) {
     Write-Host ""
-    Write-Host "First-run setup: POLY_TOKEN_ID is not configured." -ForegroundColor Yellow
-    Write-Host "Running setup wizard ..." -ForegroundColor Yellow
+    Write-Host "First-run: POLY_TOKEN_ID is not configured. Launching setup wizard..." -ForegroundColor Yellow
+    $SetupScript = Join-Path $ScriptDir 'setup_config.ps1'
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $SetupScript
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Setup wizard failed or was cancelled." -ForegroundColor Red
@@ -152,25 +169,44 @@ if ($HasPlaceholderToken) {
     }
 }
 
-# ── Dry-run safety check ──────────────────────────────────────────────────────
-$DryRun    = Get-EnvValue 'BOT_DRY_RUN'
-$PrivKey   = Get-EnvValue 'POLY_PRIVATE_KEY'
-$HasLiveCreds = ($PrivKey -and $PrivKey -ne '0xYOUR_PRIVATE_KEY' -and $PrivKey.Length -gt 10)
+# ---------------------------------------------------------------------------
+# Run environment validation
+# ---------------------------------------------------------------------------
+$CheckScript = Join-Path $ScriptDir 'check_windows.ps1'
+if (Test-Path $CheckScript) {
+    Write-Host ""
+    Write-Host "Running environment validation..." -ForegroundColor DarkGray
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $CheckScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Environment validation failed. See messages above." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
 
-if ($DryRun -eq 'false' -and -not $HasLiveCreds) {
+# ---------------------------------------------------------------------------
+# Dry-run safety gate
+# ---------------------------------------------------------------------------
+$DryRun  = Get-EnvValue 'BOT_DRY_RUN'
+$PrivKey = Get-EnvValue 'POLY_PRIVATE_KEY'
+$liveCreds = ($PrivKey -and ($PrivKey -ne '0xYOUR_PRIVATE_KEY') -and ($PrivKey.Length -gt 10))
+
+if (($DryRun -eq 'false') -and (-not $liveCreds)) {
     Write-Host ""
     Write-Host "WARNING: BOT_DRY_RUN=false but POLY_PRIVATE_KEY is not set." -ForegroundColor Red
-    Write-Host "         Switching to dry-run mode for this session." -ForegroundColor Yellow
+    Write-Host "Switching to dry-run mode for this session." -ForegroundColor Yellow
     $env:BOT_DRY_RUN = 'true'
+    $DryRun = 'true'
 }
 
 if ($DryRun -ne 'false') {
     Write-Host ""
     Write-Host "Mode: DRY RUN (paper trading, no real orders)" -ForegroundColor Cyan
-} else {
+}
+else {
     Write-Host ""
     Write-Host "Mode: LIVE TRADING" -ForegroundColor Red
-    Write-Host "      Real orders will be placed on Polymarket." -ForegroundColor Red
+    Write-Host "Real orders will be placed on Polymarket." -ForegroundColor Red
     Write-Host ""
     $confirm = Read-Host "Type YES to continue with live trading"
     if ($confirm -ne 'YES') {
@@ -179,9 +215,11 @@ if ($DryRun -ne 'false') {
     }
 }
 
-# ── Launch ────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Launch
+# ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "Starting Polymarket Platform ..." -ForegroundColor Green
+Write-Host "Starting Polymarket Platform..." -ForegroundColor Green
 Write-Host "(Press Ctrl+C to stop)" -ForegroundColor DarkGray
 Write-Host ""
 

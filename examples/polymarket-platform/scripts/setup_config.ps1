@@ -1,27 +1,25 @@
 #Requires -Version 5.1
-<#
-.SYNOPSIS
-    Interactive first-run configuration wizard for Polymarket Platform.
-
-.DESCRIPTION
-    Asks only for the values needed to run. Writes them to .env.
-    Never overwrites values that are already set unless they are placeholders.
-    Safe to re-run at any time; existing non-placeholder values are preserved.
-#>
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# ---------------------------------------------------------------------------
+# Locate project root (parent of scripts/)
+# ---------------------------------------------------------------------------
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
 $EnvFile    = Join-Path $ProjectDir '.env'
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 function Get-EnvLine {
     param([string]$Key)
-    $content = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
-    if ($content -match "(?m)^$Key=(.*)$") {
+    if (-not (Test-Path $EnvFile)) {
+        return $null
+    }
+    $raw = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
+    if ($raw -match "(?m)^$Key=(.*)$") {
         return $Matches[1].Trim()
     }
     return $null
@@ -29,152 +27,188 @@ function Get-EnvLine {
 
 function Set-EnvLine {
     param([string]$Key, [string]$Value)
-    $content = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
-    if (-not $content) { $content = '' }
-
-    $escaped = [regex]::Escape($Key)
-    if ($content -match "(?m)^$escaped=") {
-        # Replace existing line
-        $content = $content -replace "(?m)^$escaped=.*$", "$Key=$Value"
-    } else {
-        # Append new line
-        if ($content -and -not $content.EndsWith("`n")) {
-            $content += "`n"
+    $raw = ''
+    if (Test-Path $EnvFile) {
+        $raw = Get-Content $EnvFile -Raw -ErrorAction SilentlyContinue
+        if (-not $raw) {
+            $raw = ''
         }
-        $content += "$Key=$Value`n"
     }
-    Set-Content -Path $EnvFile -Value $content -NoNewline
+    $escaped = [regex]::Escape($Key)
+    if ($raw -match "(?m)^$escaped=") {
+        $raw = $raw -replace "(?m)^$escaped=.*$", "$Key=$Value"
+    }
+    else {
+        if (($raw.Length -gt 0) -and (-not $raw.EndsWith("`n"))) {
+            $raw = $raw + "`n"
+        }
+        $raw = $raw + "$Key=$Value`n"
+    }
+    [System.IO.File]::WriteAllText($EnvFile, $raw, [System.Text.Encoding]::UTF8)
 }
 
-function IsPlaceholder {
+function Test-Placeholder {
     param([string]$Value)
-    return ([string]::IsNullOrWhiteSpace($Value) `
-        -or $Value -eq 'YOUR_CLOB_TOKEN_ID' `
-        -or $Value -eq '0xYOUR_PRIVATE_KEY' `
-        -or $Value -eq '0xYOUR_FUNDER_ADDRESS')
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $true
+    }
+    $placeholders = @('YOUR_CLOB_TOKEN_ID', '0xYOUR_PRIVATE_KEY', '0xYOUR_FUNDER_ADDRESS')
+    return ($placeholders -contains $Value)
 }
 
-function Prompt-Value {
+function Read-RequiredValue {
     param(
         [string]$Key,
         [string]$Label,
-        [string]$Default = '',
-        [string]$Hint = '',
-        [switch]$Required
+        [string]$Hint
     )
     $current = Get-EnvLine $Key
-    if (-not (IsPlaceholder $current)) {
+    if (-not (Test-Placeholder $current)) {
         Write-Host "  $Label : [already set, keeping]" -ForegroundColor DarkGray
         return $current
     }
-
     Write-Host ""
-    if ($Hint) { Write-Host "  $Hint" -ForegroundColor DarkGray }
-
-    $prompt = "  $Label"
-    if ($Default) { $prompt += " [$Default]" }
-    $prompt += " : "
-
-    $value = Read-Host $prompt
-    $value = $value.Trim()
-
-    if ([string]::IsNullOrWhiteSpace($value)) {
-        if ($Default) {
-            $value = $Default
-        } elseif ($Required) {
-            Write-Host "  (required — cannot be empty)" -ForegroundColor Red
-            # Re-prompt once
-            $value = (Read-Host $prompt).Trim()
-            if ([string]::IsNullOrWhiteSpace($value)) {
-                Write-Host "  Skipping — you can set $Key manually in .env later." -ForegroundColor Yellow
-                return $null
-            }
-        }
+    if ($Hint) {
+        Write-Host "  $Hint" -ForegroundColor DarkGray
     }
-    return $value
+    $val = (Read-Host "  $Label").Trim()
+    if ([string]::IsNullOrWhiteSpace($val)) {
+        Write-Host "  Skipping $Key - you can set it manually in .env later." -ForegroundColor Yellow
+        return $null
+    }
+    return $val
 }
 
-# ── Wizard ────────────────────────────────────────────────────────────────────
+function Read-OptionalValue {
+    param(
+        [string]$Key,
+        [string]$Label,
+        [string]$Default,
+        [string]$Hint
+    )
+    $current = Get-EnvLine $Key
+    if (-not (Test-Placeholder $current)) {
+        Write-Host "  $Label : [already set, keeping]" -ForegroundColor DarkGray
+        return $current
+    }
+    Write-Host ""
+    if ($Hint) {
+        Write-Host "  $Hint" -ForegroundColor DarkGray
+    }
+    $val = (Read-Host "  $Label [$Default]").Trim()
+    if ([string]::IsNullOrWhiteSpace($val)) {
+        return $Default
+    }
+    return $val
+}
 
+# ---------------------------------------------------------------------------
+# Wizard
+# ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "=== Polymarket Platform — First-Run Setup ===" -ForegroundColor Cyan
+Write-Host "=== Polymarket Platform - First-Run Setup ===" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "This wizard will create/update your .env file." -ForegroundColor White
+Write-Host "This wizard creates/updates your .env file." -ForegroundColor White
 Write-Host "Press Enter to accept the default shown in [brackets]." -ForegroundColor DarkGray
-Write-Host "Existing values already in .env will not be changed." -ForegroundColor DarkGray
+Write-Host "Existing non-placeholder values in .env will not be changed." -ForegroundColor DarkGray
 Write-Host ""
 
-# ── Mode ─────────────────────────────────────────────────────────────────────
+# --- Trading mode ---
 Write-Host "--- Trading Mode ---" -ForegroundColor Yellow
 
 $currentDryRun = Get-EnvLine 'BOT_DRY_RUN'
 if ([string]::IsNullOrWhiteSpace($currentDryRun)) {
-    $dryRunChoice = Read-Host "  Run in dry-run (paper trading) mode? [Y/n]"
-    $dryRunChoice = $dryRunChoice.Trim().ToLower()
-    $dryRunVal = if ($dryRunChoice -eq 'n') { 'false' } else { 'true' }
-    Set-EnvLine 'BOT_DRY_RUN' $dryRunVal
-    Write-Host "  BOT_DRY_RUN=$dryRunVal" -ForegroundColor Green
-} else {
+    $choice = (Read-Host "  Run in dry-run (paper trading) mode? [Y/n]").Trim().ToLower()
+    $dryVal = 'true'
+    if ($choice -eq 'n') {
+        $dryVal = 'false'
+    }
+    Set-EnvLine 'BOT_DRY_RUN' $dryVal
+    Write-Host "  BOT_DRY_RUN=$dryVal" -ForegroundColor Green
+}
+else {
     Write-Host "  BOT_DRY_RUN=$currentDryRun [already set]" -ForegroundColor DarkGray
 }
 
-# ── Core market ───────────────────────────────────────────────────────────────
+# --- Core market settings ---
 Write-Host ""
 Write-Host "--- Core Market Settings ---" -ForegroundColor Yellow
 
-$tokenId = Prompt-Value `
-    -Key 'POLY_TOKEN_ID' `
+$tokenId = Read-RequiredValue `
+    -Key   'POLY_TOKEN_ID' `
     -Label 'Token ID (POLY_TOKEN_ID)' `
-    -Hint 'The CLOB token ID for the market you want to trade. Find it on Polymarket.' `
-    -Required
+    -Hint  'The CLOB token ID for the market you want to trade. Find it on Polymarket.'
 
 if ($tokenId) {
     Set-EnvLine 'POLY_TOKEN_ID' $tokenId
-    Write-Host "  POLY_TOKEN_ID set." -ForegroundColor Green
+    Write-Host "  POLY_TOKEN_ID saved." -ForegroundColor Green
 }
 
-# ── Live credentials (only if live mode) ─────────────────────────────────────
-$dryRunFinal = Get-EnvLine 'BOT_DRY_RUN'
-if ($dryRunFinal -eq 'false') {
+# --- Live credentials (only when live mode selected) ---
+$dryFinal = Get-EnvLine 'BOT_DRY_RUN'
+if ($dryFinal -eq 'false') {
     Write-Host ""
     Write-Host "--- Live Trading Credentials ---" -ForegroundColor Yellow
-    Write-Host "  (Required for BOT_DRY_RUN=false)" -ForegroundColor DarkGray
+    Write-Host "  (Required because BOT_DRY_RUN=false)" -ForegroundColor DarkGray
 
-    $privKey = Prompt-Value `
-        -Key 'POLY_PRIVATE_KEY' `
+    $privKey = Read-RequiredValue `
+        -Key   'POLY_PRIVATE_KEY' `
         -Label 'Private key (0x...)' `
-        -Hint 'Your Ethereum wallet private key — starts with 0x. NEVER share this.'
+        -Hint  'Your Ethereum wallet private key starting with 0x. NEVER share this.'
 
-    if ($privKey) { Set-EnvLine 'POLY_PRIVATE_KEY' $privKey }
+    if ($privKey) {
+        Set-EnvLine 'POLY_PRIVATE_KEY' $privKey
+    }
 
-    $funder = Prompt-Value `
-        -Key 'POLY_FUNDER_ADDRESS' `
+    $funder = Read-RequiredValue `
+        -Key   'POLY_FUNDER_ADDRESS' `
         -Label 'Funder address (0x...)' `
-        -Hint 'Your wallet address (the one that holds the funds).'
+        -Hint  'Your wallet address that holds the funds.'
 
-    if ($funder) { Set-EnvLine 'POLY_FUNDER_ADDRESS' $funder }
-} else {
+    if ($funder) {
+        Set-EnvLine 'POLY_FUNDER_ADDRESS' $funder
+    }
+}
+else {
     Write-Host ""
-    Write-Host "  (Skipping live credentials — dry-run mode)" -ForegroundColor DarkGray
+    Write-Host "  (Skipping live credentials - dry-run mode)" -ForegroundColor DarkGray
 }
 
-# ── Strategy defaults ─────────────────────────────────────────────────────────
+# --- Strategy thresholds ---
 Write-Host ""
 Write-Host "--- Strategy Thresholds (press Enter for defaults) ---" -ForegroundColor Yellow
 
-$buyThr = Prompt-Value -Key 'BUY_THRESHOLD'  -Label 'Buy threshold'  -Default '0.45' `
-    -Hint 'Buy when ask price <= this (0.0 to 1.0). Default: 0.45'
-if ($buyThr) { Set-EnvLine 'BUY_THRESHOLD' $buyThr }
+$buyThr = Read-OptionalValue `
+    -Key     'BUY_THRESHOLD' `
+    -Label   'Buy threshold' `
+    -Default '0.45' `
+    -Hint    'Buy when ask price <= this (0.0 to 1.0). Default: 0.45'
 
-$sellThr = Prompt-Value -Key 'SELL_THRESHOLD' -Label 'Sell threshold' -Default '0.55' `
-    -Hint 'Sell when bid price >= this (0.0 to 1.0). Default: 0.55'
-if ($sellThr) { Set-EnvLine 'SELL_THRESHOLD' $sellThr }
+if ($buyThr) {
+    Set-EnvLine 'BUY_THRESHOLD' $buyThr
+}
 
-$buyAmt = Prompt-Value -Key 'STRAT_BUY_AMOUNT_USD' -Label 'Buy amount USD' -Default '10.00' `
-    -Hint 'USD amount per BUY order. Default: 10.00'
-if ($buyAmt) { Set-EnvLine 'STRAT_BUY_AMOUNT_USD' $buyAmt }
+$sellThr = Read-OptionalValue `
+    -Key     'SELL_THRESHOLD' `
+    -Label   'Sell threshold' `
+    -Default '0.55' `
+    -Hint    'Sell when bid price >= this (0.0 to 1.0). Default: 0.55'
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+if ($sellThr) {
+    Set-EnvLine 'SELL_THRESHOLD' $sellThr
+}
+
+$buyAmt = Read-OptionalValue `
+    -Key     'STRAT_BUY_AMOUNT_USD' `
+    -Label   'Buy amount USD' `
+    -Default '10.00' `
+    -Hint    'USD amount per BUY order. Default: 10.00'
+
+if ($buyAmt) {
+    Set-EnvLine 'STRAT_BUY_AMOUNT_USD' $buyAmt
+}
+
+# --- Done ---
 Write-Host ""
 Write-Host "=== Setup complete ===" -ForegroundColor Green
 Write-Host "  Config saved to: $EnvFile" -ForegroundColor White

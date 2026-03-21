@@ -1,7 +1,8 @@
 @echo off
-:: Start-Polymarket.cmd — double-click entrypoint for Polymarket Platform
-:: Launches the PowerShell bootstrap with execution policy bypass.
-:: No manual setup required on subsequent runs.
+:: Start-Polymarket.cmd
+:: Double-click to bootstrap and launch the Polymarket Platform on Windows.
+:: Calls start_windows.ps1 via PowerShell with execution-policy bypass.
+:: No manual setup required.
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start_windows.ps1"
 
