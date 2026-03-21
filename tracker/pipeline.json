@@ -28,20 +28,20 @@
           "channel": "unknown"
         }
       ],
-      "channels": ["LinkedIn", "unknown"],
-      "status": "not_researched",
+      "channels": ["email", "LinkedIn", "unknown"],
+      "status": "contacted",
       "source": "Shortlisted by Antonio — office presence in Almaty, publicly stated solar pipeline in Almaty Region",
       "record_type": "company",
       "data_maturity": "inferred",
-      "first_contact_date": null,
-      "last_contact_date": null,
-      "channel_used": null,
+      "first_contact_date": "2026-03-21",
+      "last_contact_date": "2026-03-21",
+      "channel_used": "email — kazakhstan@natpower.com",
       "response": null,
-      "next_action_suggestion": "Not yet approved",
-      "approval_status": "Pending Antonio review",
+      "next_action_suggestion": "Await response. Discuss follow-up with Antonio if no reply.",
+      "approval_status": "First contact sent — awaiting response",
       "blockers": null,
       "last_updated": "2026-03-21",
-      "notes": "COMMERCIAL INFERENCE: Presence in Almaty Region and stated solar pipeline suggest potential relevance for a land-based development discussion, but this is not verified fit. LIMITATION: No Scout report has been run yet. Contact details are surface-level only. No verified direct email address for either contact. CONTEXT: NatPower is treated here as a Kazakhstan operating target; parent or founder nationality can be captured later in Scout research. CONFIDENCE: Low at this stage — record is seeded from Antonio's shortlist, not independently researched."
+      "notes": "SCOUT REPORT COMPLETED: 2026-03-21. VERIFIED: Office at 53 Abylai Khan Ave, Almaty (opened 2023). Confirmed Kazakhstan office email: kazakhstan@natpower.com. Stated 1 GW solar pipeline in Kazakhstan with multiple Almaty Region projects at various stages (Ulken Solar 100 MW mid-stage, Kairatkol 100 MW advanced, Albina Solar 80 MW early-stage, plus two 50 MW projects). 33 MW hydro project awarded Jan 2024 via Ministry of Energy tender (20-year PPA, EUR 40M, 40-year lease). Business model includes land acquisition for RtB status, then M&A exit to utilities/funds. VINCI holds approx. 10% stake in NatPower SA. LIMITATIONS: Website project pages returned 403 errors — exact site locations and land status per project could not be directly confirmed. No project found specifically in Talgar District. No personal email found for Fabrizio Zago or Andrea Bonomi. COMMERCIAL INFERENCE: Geographic and sectoral overlap with TOO ZHAITAP is genuine. Land acquisition is part of their stated model. Whether they have unmet land requirements in Talgar District is unknown and was not claimed in outreach. DATA MATURITY: Remains 'inferred' — record mixes verified facts and commercial inference. OUTREACH: First contact sent 2026-03-21 via kazakhstan@natpower.com. Language: Russian. Draft reviewed and approved by Antonio before sending."
     }
   ]
 }

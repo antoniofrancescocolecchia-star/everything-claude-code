@@ -115,3 +115,66 @@ When selecting the top target, all records not `blocked`, `archived`, or `contac
 ### Archive Protocol
 
 Superseded files move to `archive/` with a full ISO timestamp prefix, e.g. `archive/2026-03-21T12-23-09-CLAUDE.md.bak`. Never delete without archiving first.
+
+### Outreach Conventions
+
+**Language rule**
+- Kazakh company, local Kazakhstan-based team, or mainly Kazakhstan-based contact: default to Russian.
+- International company or clearly international-facing team: default to English.
+
+**First-contact disclosure rule**
+Do not include in first outreach:
+- Exact land size
+- Lease or sale terms
+- Deal structure or JV structure
+- Economics, returns, or valuation
+- Grid connection status
+- Permits or permitting assumptions
+- Project readiness claims
+- Attached documents (business plans, teasers, presentations)
+
+First contact is only to open a conversation.
+
+**Tone rule**
+- Adult, restrained, credible, non-salesy.
+- No generic consulting language, hype, or unverified technical claims.
+- Do not say the site is "perfect for solar panels."
+- Forbidden phrases: "significant land asset", "strategic opportunity", "exciting project", "game-changing", "high potential", "win-win", "I hope this message finds you well", "world-class", "investor-grade", "premium location", "unique opportunity", "immediately actionable."
+- Acceptable positioning: "sizable land position", "may be relevant for utility-scale solar development", "may be of interest for solar development", "land position in Talgar District, Almaty Region."
+- For Russian outreach: keep the tone natural and non-literal.
+
+**Signature rule**
+- Formal English (large international company): `Antonio Francesco Colecchia` / `TOO ZHAITAP`
+- Standard English: `Antonio` / `TOO ZHAITAP`
+- Russian (intentionally human/light): `Antonio` or `Антонио` — do not force TOO ZHAITAP in signature if the draft is intentionally more personal.
+
+**Local presence rule (Zaituna)**
+- If email allows CC: Zaituna can be presented as project partner, already in Almaty, available for an initial discussion if useful.
+- If outreach is via contact form with no CC field: refer to her as a project partner already in Almaty — do not claim she is copied on the email.
+
+**ACWA Power rule**
+- Do not claim solar activity in Kazakhstan. Use: "renewable energy presence in Kazakhstan."
+- Contact form only: no fake CC references. Ask that the inquiry be forwarded to the appropriate team if relevant.
+
+**Universal Energy rule**
+- English is acceptable.
+- Kazakhstan and Almaty operational presence is confirmed and relevant.
+- Use the same restrained first-contact structure.
+
+**General contact rule**
+- Do not mark any company as contacted unless Antonio explicitly confirms.
+- Do not seed or change records silently.
+- Drafted messages for other companies are drafts only until Antonio confirms sending.
+
+### Working Outreach Order
+
+As of 2026-03-21. Working priority unless tracker state changes:
+
+1. Universal Energy
+2. TotalEnergies
+3. Masdar
+4. Goldbeck Solar
+5. ACWA Power (via contact form)
+6. CEEC — later if needed
+
+Deprioritized: Kazakhstan Invest. Government route is not the preferred path at this stage.
