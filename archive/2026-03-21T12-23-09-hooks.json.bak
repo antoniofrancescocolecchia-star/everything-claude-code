@@ -74,16 +74,6 @@
           }
         ],
         "description": "Optional InsAIts AI security monitor for Bash/Edit/Write flows. Enable with ECC_ENABLE_INSAITS=1. Requires: pip install insa-its"
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/zhaitap-status-guard.js\""
-          }
-        ],
-        "description": "ZHAITAP: Block new transitions to contacted/replied/approved_to_use in tracker/pipeline.json without Antonio confirmation"
       }
     ],
     "PreCompact": [
@@ -186,18 +176,6 @@
           }
         ],
         "description": "Capture tool use results for continuous learning"
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/hooks/zhaitap-tracker-validate.js\"",
-            "async": true,
-            "timeout": 10
-          }
-        ],
-        "description": "ZHAITAP: Validate tracker/pipeline.json schema and enumerated values after writes"
       }
     ],
     "Stop": [
