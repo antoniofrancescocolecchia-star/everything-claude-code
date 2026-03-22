@@ -33,6 +33,8 @@ from polymarket_platform.scanner.gamma_client import GammaClient
 from polymarket_platform.scanner.worker import MarketWorker, WorkerState
 
 if TYPE_CHECKING:
+    from polymarket_platform.analyst.analyst import MarketAnalyst
+    from polymarket_platform.analyst.signals import PredictionSignal
     from polymarket_platform.scanner.clob_probe import ClobQuote
 
 log = logging.getLogger(__name__)
@@ -60,6 +62,15 @@ class Orchestrator:
             max_concurrent=5,
         )
         self._workers: dict[str, MarketWorker] = {}
+        self._analyst: MarketAnalyst | None = self._build_analyst()
+
+    def _build_analyst(self) -> MarketAnalyst | None:
+        if not self._cfg.analyst_enabled:
+            return None
+        from polymarket_platform.analyst.analyst import MarketAnalyst
+        from polymarket_platform.analyst.guardrails import validate_budget_coherence
+        validate_budget_coherence(self._cfg)
+        return MarketAnalyst.from_settings(self._cfg, self._store)
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -95,6 +106,8 @@ class Orchestrator:
             await self._shutdown_all_workers()
             await self._gamma.close()
             await self._probe.close()
+            if self._analyst is not None:
+                await self._analyst.close()
             log.info("Orchestrator stopped")
 
     # ------------------------------------------------------------------
@@ -165,8 +178,25 @@ class Orchestrator:
         # 8. Persist opportunities
         self._store.insert_opportunities(opportunities)
 
-        # 9. Rebalance the worker pool
-        await self._rebalance(opportunities)
+        # 9. Layer 3 analyst (optional; only when ANALYST_ENABLED=true)
+        signals: list[PredictionSignal] = []
+        if self._analyst is not None:
+            from polymarket_platform.analyst.analyst import select_analyst_candidates
+            candidates = select_analyst_candidates(
+                catalog,
+                clob_quotes,
+                self._cfg.analyst_max_analyses_per_cycle,
+            )
+            signals = await self._analyst.analyze_batch(candidates, clob_quotes)
+            valid = sum(1 for s in signals if s.forwarded)
+            log.info(
+                "Analyst: %d signals produced, %d forwarded",
+                len(signals),
+                valid,
+            )
+
+        # 10. Rebalance the worker pool
+        await self._rebalance(opportunities, signals=signals)
 
         elapsed = time.time() - t0
         log.info("=== Scanner cycle complete in %.1fs ===", elapsed)
@@ -174,9 +204,22 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # Worker pool management
 
-    async def _rebalance(self, opportunities: list[OpportunityRecord]) -> None:
-        """Start/stop workers to match the ranked opportunity list."""
+    async def _rebalance(
+        self,
+        opportunities: list[OpportunityRecord],
+        *,
+        signals: list[PredictionSignal] | None = None,
+    ) -> None:
+        """
+        Start/stop workers to match the ranked opportunity list.
 
+        When analyst signals are present and ANALYST_TRADING_ENABLED=true
+        and unlock conditions are met, tier-1 (analyst-backed) opportunities
+        are prioritised over tier-3 (L2 heuristics only).
+
+        Backward compatible: when signals=[] or analyst disabled, behaviour
+        is identical to the original L2-only logic.
+        """
         # Clean up terminated workers first
         finished_tokens = [
             tid
@@ -190,16 +233,56 @@ class Orchestrator:
 
         max_workers = self._cfg.max_concurrent_markets
 
-        # Target token set: top-N opportunities that pass both thresholds
-        target: dict[str, OpportunityRecord] = {}
+        # Build analyst signal lookup (VALID + forwarded only)
+        sig_map: dict[str, PredictionSignal] = {}
+        if signals and self._cfg.analyst_enabled:
+            from polymarket_platform.analyst.signals import AnalysisStatus
+            sig_map = {
+                s.token_id: s
+                for s in signals
+                if s.status == AnalysisStatus.VALID and s.forwarded
+            }
+
+        analyst_live = (
+            bool(sig_map)
+            and self._cfg.analyst_trading_enabled
+            and self._analyst is not None
+            and self._analyst.is_live_trading_unlocked()
+        )
+
+        # Build priority-ranked opportunity list
+        # Tier 1: analyst-backed (if live trading unlocked)
+        # Tier 3: L2 heuristics (always available as fallback)
+        tier1: list[OpportunityRecord] = []
+        tier3: list[OpportunityRecord] = []
         for opp in opportunities:
-            if len(target) >= max_workers:
-                break
-            if (
+            passes_l2 = (
                 opp.confidence >= self._cfg.opportunity_min_confidence
                 and opp.expected_edge_bps >= self._cfg.opportunity_min_edge_bps
-            ):
-                target[opp.token_id] = opp
+            )
+            if not passes_l2:
+                continue
+            if analyst_live and opp.token_id in sig_map:
+                tier1.append(opp)
+            else:
+                tier3.append(opp)
+
+        ranked = tier1 + tier3
+
+        if sig_map and not analyst_live:
+            log.info(
+                "Analyst signals present but live trading not unlocked "
+                "(trading_enabled=%s, signals=%d) -- monitor only",
+                self._cfg.analyst_trading_enabled,
+                len(sig_map),
+            )
+
+        # Target token set: top-N from ranked list
+        target: dict[str, OpportunityRecord] = {}
+        for opp in ranked:
+            if len(target) >= max_workers:
+                break
+            target[opp.token_id] = opp
 
         # Stop workers no longer in the target set
         to_evict = [tid for tid in list(self._workers) if tid not in target]

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from polymarket_platform.db.migrations import migrate
 
 if TYPE_CHECKING:
+    from polymarket_platform.analyst.signals import EvidenceRecord, PredictionSignal
     from polymarket_platform.scanner.catalog import MarketRecord
     from polymarket_platform.scanner.clob_probe import ClobQuote
     from polymarket_platform.scanner.detector import OpportunityRecord
@@ -500,3 +501,198 @@ class SqliteStore:
                 "SELECT * FROM tracked_positions WHERE status = 'active' ORDER BY started_ts DESC"
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # =========================================================================
+    # Analyst / Layer 3 methods
+    # =========================================================================
+
+    def insert_analyst_predictions(self, signals: list[PredictionSignal]) -> None:
+        """Persist analyst prediction records (one row per attempt)."""
+        with self._lock:
+            for s in signals:
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO analyst_predictions (
+                        prediction_id, thesis_id, token_id, market_slug, question,
+                        fair_probability, confidence, edge_bps, side,
+                        evidence_summary, evidence_age_minutes, sources,
+                        midpoint_at_analysis, model_used,
+                        api_cost_usd, search_cost_usd,
+                        input_token_cost_usd, output_token_cost_usd,
+                        status, forwarded, ts
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        s.prediction_id,
+                        s.thesis_id,
+                        s.token_id,
+                        s.market_slug,
+                        s.question,
+                        s.fair_probability,
+                        s.confidence,
+                        s.edge_bps,
+                        str(s.side),
+                        s.evidence_summary,
+                        s.evidence_age_minutes,
+                        json.dumps(s.sources),
+                        s.midpoint_at_analysis,
+                        s.model_used,
+                        s.api_cost_usd,
+                        s.search_cost_usd,
+                        s.input_token_cost_usd,
+                        s.output_token_cost_usd,
+                        str(s.status),
+                        1 if s.forwarded else 0,
+                        s.ts,
+                    ),
+                )
+                # Seed the calibration row for any VALID+forwarded signal
+                if s.forwarded and s.midpoint_at_analysis is not None:
+                    from polymarket_platform.analyst.calibration import confidence_bucket
+                    self._conn.execute(
+                        """
+                        INSERT OR IGNORE INTO analyst_calibration (
+                            prediction_id, fair_probability,
+                            market_implied_probability, confidence_value,
+                            confidence_bucket, market_slug, question
+                        ) VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (
+                            s.prediction_id,
+                            s.fair_probability,
+                            s.midpoint_at_analysis,
+                            s.confidence,
+                            confidence_bucket(s.confidence),
+                            s.market_slug,
+                            s.question,
+                        ),
+                    )
+            self._conn.commit()
+
+    def insert_analyst_evidence(
+        self,
+        signals: list[PredictionSignal],
+        evidence: list[EvidenceRecord],
+    ) -> None:
+        """Persist evidence records for the given predictions."""
+        with self._lock:
+            for s in signals:
+                for rec in (s.evidence_records or evidence):
+                    self._conn.execute(
+                        """
+                        INSERT INTO analyst_evidence
+                          (prediction_id, url, title, snippet,
+                           published_at, age_minutes, domain)
+                        VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (
+                            s.prediction_id,
+                            rec.url,
+                            rec.title,
+                            rec.snippet,
+                            rec.published_at,
+                            rec.age_minutes,
+                            rec.domain,
+                        ),
+                    )
+            self._conn.commit()
+
+    def insert_analyst_costs(
+        self,
+        *,
+        prediction_id: str,
+        search_usd: float,
+        input_token_usd: float,
+        output_token_usd: float,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> None:
+        """Persist granular cost breakdown for one analysis call."""
+        now = time.time()
+        with self._lock:
+            for cost_type, amount, tokens in [
+                ("SEARCH", search_usd, 0),
+                ("INPUT_TOKENS", input_token_usd, input_tokens),
+                ("OUTPUT_TOKENS", output_token_usd, output_tokens),
+            ]:
+                self._conn.execute(
+                    """
+                    INSERT INTO analyst_costs
+                      (prediction_id, cost_type, amount_usd, token_count, ts)
+                    VALUES (?,?,?,?,?)
+                    """,
+                    (prediction_id, cost_type, amount, tokens, now),
+                )
+            self._conn.commit()
+
+    def get_recent_analyst_predictions(
+        self, *, limit: int = 20
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM analyst_predictions ORDER BY ts DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_analyst_predictions(self) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM analyst_predictions"
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def get_resolved_calibration_rows(self) -> list[dict[str, Any]]:
+        """Return all calibration rows where outcome IS NOT NULL."""
+        with self._lock:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM analyst_calibration
+                WHERE outcome IS NOT NULL
+                ORDER BY resolved_at DESC
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def total_analyst_cost_usd(self) -> float:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COALESCE(SUM(amount_usd), 0) FROM analyst_costs"
+            ).fetchone()
+        return float(row[0]) if row else 0.0
+
+    def get_analyst_costs_since(self, since_ts: float) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM analyst_costs WHERE ts >= ? ORDER BY ts ASC",
+                (since_ts,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def resolve_calibration_outcome(
+        self, *, prediction_id: str, outcome: int
+    ) -> None:
+        """Record a market resolution result (outcome: 0=NO, 1=YES)."""
+        from polymarket_platform.analyst.calibration import compute_brier_score
+
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT fair_probability, market_implied_probability "
+                "FROM analyst_calibration WHERE prediction_id = ?",
+                (prediction_id,),
+            ).fetchone()
+            if row is None:
+                return
+            fp, mp = float(row[0]), float(row[1])
+            bs = compute_brier_score(fp, outcome)
+            mbs = compute_brier_score(mp, outcome)
+            self._conn.execute(
+                """
+                UPDATE analyst_calibration
+                SET outcome = ?, brier_score = ?, market_brier_score = ?,
+                    resolved_at = ?
+                WHERE prediction_id = ?
+                """,
+                (outcome, bs, mbs, time.time(), prediction_id),
+            )
+            self._conn.commit()

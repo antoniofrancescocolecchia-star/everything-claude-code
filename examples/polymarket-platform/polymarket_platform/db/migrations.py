@@ -154,6 +154,77 @@ _MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS tpos_status ON tracked_positions(status);
         """,
     ),
+    # -----------------------------------------------------------------
+    # Migration 3 -- Analyst / Layer 3 tables
+    # -----------------------------------------------------------------
+    (
+        3,
+        """
+        CREATE TABLE IF NOT EXISTS analyst_predictions (
+            prediction_id          TEXT    PRIMARY KEY,
+            thesis_id              TEXT    NOT NULL,
+            token_id               TEXT    NOT NULL,
+            market_slug            TEXT    NOT NULL,
+            question               TEXT    NOT NULL,
+            fair_probability       REAL    NOT NULL,
+            confidence             REAL    NOT NULL,
+            edge_bps               REAL    NOT NULL,
+            side                   TEXT    NOT NULL,
+            evidence_summary       TEXT    NOT NULL DEFAULT '',
+            evidence_age_minutes   REAL    NOT NULL DEFAULT 0.0,
+            sources                TEXT    NOT NULL DEFAULT '[]',
+            midpoint_at_analysis   REAL,
+            model_used             TEXT    NOT NULL DEFAULT '',
+            api_cost_usd           REAL    NOT NULL DEFAULT 0.0,
+            search_cost_usd        REAL    NOT NULL DEFAULT 0.0,
+            input_token_cost_usd   REAL    NOT NULL DEFAULT 0.0,
+            output_token_cost_usd  REAL    NOT NULL DEFAULT 0.0,
+            status                 TEXT    NOT NULL,
+            forwarded              INTEGER NOT NULL DEFAULT 0,
+            ts                     REAL    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ap_thesis    ON analyst_predictions(thesis_id);
+        CREATE INDEX IF NOT EXISTS ap_token_ts  ON analyst_predictions(token_id, ts DESC);
+        CREATE INDEX IF NOT EXISTS ap_status_ts ON analyst_predictions(status, ts DESC);
+
+        CREATE TABLE IF NOT EXISTS analyst_evidence (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            prediction_id TEXT    NOT NULL REFERENCES analyst_predictions(prediction_id),
+            url           TEXT    NOT NULL,
+            title         TEXT,
+            snippet       TEXT,
+            published_at  TEXT,
+            age_minutes   REAL,
+            domain        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS ae_pred ON analyst_evidence(prediction_id);
+
+        CREATE TABLE IF NOT EXISTS analyst_calibration (
+            prediction_id                TEXT    PRIMARY KEY
+                                                 REFERENCES analyst_predictions(prediction_id),
+            fair_probability             REAL    NOT NULL,
+            market_implied_probability   REAL    NOT NULL,
+            confidence_value             REAL    NOT NULL,
+            confidence_bucket            TEXT    NOT NULL,
+            market_slug                  TEXT    NOT NULL,
+            question                     TEXT    NOT NULL,
+            outcome                      INTEGER,
+            brier_score                  REAL,
+            market_brier_score           REAL,
+            resolved_at                  REAL
+        );
+
+        CREATE TABLE IF NOT EXISTS analyst_costs (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            prediction_id TEXT    REFERENCES analyst_predictions(prediction_id),
+            cost_type     TEXT    NOT NULL,
+            amount_usd    REAL    NOT NULL,
+            token_count   INTEGER,
+            ts            REAL    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ac_ts ON analyst_costs(ts DESC);
+        """,
+    ),
 ]
 
 

@@ -287,5 +287,164 @@ def scan_status() -> None:
     store.close()
 
 
+@app.command()
+def analyze(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to .env file"),
+    limit: int = typer.Option(5, "--limit", "-n", help="Max markets to analyze"),
+) -> None:
+    """
+    One-shot Layer 3 analysis of current top market candidates.
+
+    Reads the current market catalog from the DB, selects the top candidates
+    by Layer 2 score, runs the AI analyst, and prints results.
+    Works in dry-run mode (no trades). Requires ANALYST_ENABLED=true and
+    ANTHROPIC_API_KEY to be set for live analysis; otherwise reports config state.
+    """
+    import os
+
+    from polymarket_platform.analyst.analyst import MarketAnalyst, select_analyst_candidates
+    from polymarket_platform.analyst.guardrails import validate_budget_coherence
+    from polymarket_platform.analyst.signals import AnalysisStatus
+    from polymarket_platform.config import Settings
+    from polymarket_platform.db.store import SqliteStore
+    from polymarket_platform.logging_utils import configure_logging
+
+    if config:
+        os.environ.setdefault("DOTENV_PATH", config)
+    cfg = Settings(_env_file=config) if config else Settings()  # type: ignore[call-arg]
+    configure_logging(cfg.log_level, cfg.log_json)
+
+    sep = "-" * 60
+    typer.echo(f"\n{sep}")
+    typer.echo("  Polymarket Analyst -- One-Shot Analysis")
+    typer.echo(sep)
+    typer.echo(f"  ANALYST_ENABLED:         {cfg.analyst_enabled}")
+    typer.echo(f"  ANALYST_TRADING_ENABLED: {cfg.analyst_trading_enabled}")
+    typer.echo(f"  ANALYST_MODEL:           {cfg.analyst_model}")
+    typer.echo(f"  ANTHROPIC_API_KEY set:   {bool(cfg.anthropic_api_key)}")
+
+    if not cfg.analyst_enabled:
+        typer.echo("\n  Analyst is disabled. Set ANALYST_ENABLED=true to enable.")
+        typer.echo(sep)
+        return
+
+    try:
+        validate_budget_coherence(cfg)
+    except ValueError as exc:
+        typer.echo(f"\n  Config error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    store = SqliteStore(cfg.sqlite_path)
+    try:
+        catalog = store.get_market_catalog(limit=limit * 4)
+        if not catalog:
+            typer.echo("\n  No market catalog found. Run 'polymarket scan' first.")
+            typer.echo(sep)
+            return
+        typer.echo(f"\n  Catalog size: {len(catalog)} markets available")
+
+        # Reconstruct MarketRecord-like objects for analyst
+        from polymarket_platform.scanner.catalog import MarketRecord
+
+        records: list[MarketRecord] = []
+        for row in catalog:
+            records.append(
+                MarketRecord(
+                    token_id=row["token_id"],
+                    condition_id=row["condition_id"],
+                    slug=row.get("slug") or "",
+                    event_slug=row.get("event_slug"),
+                    question=row.get("question") or "",
+                    outcome=row.get("outcome") or "YES",
+                    outcome_price=0.5,
+                    end_date_ts=row.get("end_date_ts"),
+                    days_to_expiry=row.get("days_to_expiry"),
+                    liquidity=row.get("liquidity", 0.0),
+                    volume_24h=row.get("volume_24h", 0.0),
+                    score=row.get("score", 0.0),
+                    all_token_ids=[row["token_id"]],
+                    all_outcome_prices=[0.5],
+                )
+            )
+
+        candidates = select_analyst_candidates(records, {}, limit)
+        typer.echo(f"  Analyzing {len(candidates)} candidates...")
+
+        analyst = MarketAnalyst.from_settings(cfg, store)
+
+        async def _run() -> list:
+            try:
+                return await analyst.analyze_batch(candidates, {})
+            finally:
+                await analyst.close()
+
+        signals = asyncio.run(_run())
+
+        typer.echo(f"\n  Produced {len(signals)} signals:\n")
+        for s in signals:
+            status_icon = "OK" if s.status == AnalysisStatus.VALID else "--"
+            typer.echo(
+                f"  [{status_icon}] {s.market_slug[:40]}"
+                f"  status={s.status}"
+                f"  fair_prob={s.fair_probability:.2f}"
+                f"  conf={s.confidence:.2f}"
+                f"  edge={s.edge_bps:+.0f}bps"
+                f"  side={s.side}"
+                f"  cost=${s.api_cost_usd:.4f}"
+            )
+            if s.evidence_summary:
+                typer.echo(f"       {s.evidence_summary[:100]}")
+    finally:
+        store.close()
+
+    typer.echo(f"\n{sep}\n")
+
+
+@app.command()
+def calibration() -> None:
+    """
+    Show Layer 3 analyst calibration report.
+
+    Displays prediction accuracy, Brier scores, cost totals, and whether
+    the system has met the requirements to unlock live analyst trading.
+    """
+    from polymarket_platform.analyst.calibration import build_report, is_live_trading_unlocked
+    from polymarket_platform.config import Settings
+    from polymarket_platform.db.store import SqliteStore
+
+    cfg = Settings()
+    store = SqliteStore(cfg.sqlite_path)
+
+    try:
+        report = build_report(store)
+        unlocked = is_live_trading_unlocked(store, cfg)
+
+        sep = "-" * 60
+        typer.echo(f"\n{sep}")
+        typer.echo("  Polymarket Analyst -- Calibration Report")
+        typer.echo(sep)
+        for line in report.summary_lines():
+            typer.echo(f"  {line}")
+        typer.echo("")
+        if unlocked:
+            typer.echo("  Live trading: UNLOCKED (all unlock conditions met)")
+        else:
+            typer.echo("  Live trading: LOCKED")
+            if report.resolved_predictions < cfg.analyst_min_resolved_predictions:
+                typer.echo(
+                    f"    Need {cfg.analyst_min_resolved_predictions} resolved predictions, "
+                    f"have {report.resolved_predictions}"
+                )
+            if not report.beats_random:
+                typer.echo("    Brier score does not beat random baseline (0.25)")
+            if not report.beats_market:
+                typer.echo("    Brier score does not beat market-implied baseline")
+            if not report.is_monotone_calibrated:
+                typer.echo("    Calibration is not monotonically increasing")
+        typer.echo(f"\n{sep}\n")
+    finally:
+        store.close()
+
+
 def main() -> None:
     app()

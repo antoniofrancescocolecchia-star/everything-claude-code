@@ -125,3 +125,108 @@ class Settings(BaseSettings):
     orchestrator_rebalance_seconds: float = Field(
         default=0.0, alias="ORCHESTRATOR_REBALANCE_SECONDS"
     )
+
+    # =========================================================================
+    # Analyst / Layer 3 settings
+    # =========================================================================
+
+    # Anthropic API key for the analyst LLM and web search.
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+
+    # Master switch: enable Layer 3 analyst.
+    # When False, scanner runs Layer 2 heuristics only.
+    analyst_enabled: bool = Field(default=False, alias="ANALYST_ENABLED")
+
+    # Live-trading unlock: when False, analyst signals are monitor-only
+    # and do NOT influence worker allocation.
+    analyst_trading_enabled: bool = Field(
+        default=False, alias="ANALYST_TRADING_ENABLED"
+    )
+
+    # Anthropic model used for analysis.
+    analyst_model: str = Field(
+        default="claude-sonnet-4-6", alias="ANALYST_MODEL"
+    )
+
+    # Maximum event groups (analysis units) per scanner cycle.
+    # Each group costs one retrieval search.
+    analyst_max_analyses_per_cycle: int = Field(
+        default=5, alias="ANALYST_MAX_ANALYSES_PER_CYCLE"
+    )
+
+    # Maximum web search calls per scanner cycle.
+    # Must be >= analyst_max_analyses_per_cycle (budget coherence).
+    analyst_max_searches_per_cycle: int = Field(
+        default=5, alias="ANALYST_MAX_SEARCHES_PER_CYCLE"
+    )
+
+    # Minimum model confidence to forward a signal to the orchestrator.
+    analyst_min_confidence: float = Field(
+        default=0.40, alias="ANALYST_MIN_CONFIDENCE"
+    )
+
+    # Minimum absolute edge (bps) to forward a signal.
+    # Must exceed taker fee (~200bps) plus safety buffer.
+    analyst_min_edge_bps: float = Field(
+        default=300.0, alias="ANALYST_MIN_EDGE_BPS"
+    )
+
+    # Maximum evidence age in minutes before a result is considered stale.
+    analyst_max_evidence_age_minutes: float = Field(
+        default=360.0, alias="ANALYST_MAX_EVIDENCE_AGE_MINUTES"
+    )
+
+    # Hourly API cost cap (searches + tokens combined, USD).
+    analyst_max_cost_per_hour_usd: float = Field(
+        default=2.00, alias="ANALYST_MAX_COST_PER_HOUR_USD"
+    )
+
+    # Daily API cost cap (USD).
+    analyst_max_cost_per_day_usd: float = Field(
+        default=10.00, alias="ANALYST_MAX_COST_PER_DAY_USD"
+    )
+
+    # Hourly input token cap.
+    analyst_max_input_tokens_per_hour: int = Field(
+        default=100_000, alias="ANALYST_MAX_INPUT_TOKENS_PER_HOUR"
+    )
+
+    # Hourly output token cap.
+    analyst_max_output_tokens_per_hour: int = Field(
+        default=20_000, alias="ANALYST_MAX_OUTPUT_TOKENS_PER_HOUR"
+    )
+
+    # Maximum 429 rate-limit events tolerated per hour before pausing.
+    analyst_max_429s_per_hour: int = Field(
+        default=5, alias="ANALYST_MAX_429S_PER_HOUR"
+    )
+
+    # Skip analysis for markets below this price (near-resolved YES).
+    analyst_price_floor: float = Field(
+        default=0.08, alias="ANALYST_PRICE_FLOOR"
+    )
+
+    # Skip analysis for markets above this price (near-resolved NO).
+    analyst_price_ceiling: float = Field(
+        default=0.92, alias="ANALYST_PRICE_CEILING"
+    )
+
+    # Minimum resolved predictions before live-trading unlock is considered.
+    analyst_min_resolved_predictions: int = Field(
+        default=100, alias="ANALYST_MIN_RESOLVED_PREDICTIONS"
+    )
+
+    # Which retrieval provider to use. Currently: "anthropic_web_search".
+    analyst_retrieval_provider: str = Field(
+        default="anthropic_web_search", alias="ANALYST_RETRIEVAL_PROVIDER"
+    )
+
+    # Enforce Anthropic tool-use schema validation (recommended: True).
+    analyst_require_schema_validation: bool = Field(
+        default=True, alias="ANALYST_REQUIRE_SCHEMA_VALIDATION"
+    )
+
+    # Require analyst to beat market-implied Brier baseline before live trading.
+    analyst_market_baseline_required: bool = Field(
+        default=True, alias="ANALYST_MARKET_BASELINE_REQUIRED"
+    )
