@@ -15,7 +15,7 @@ app = typer.Typer(
 def run(
     config: str | None = typer.Option(None, "--config", "-c", help="Path to .env file"),
 ) -> None:
-    """Start the trading engine (dry-run by default)."""
+    """Start the trading engine in single-token mode (dry-run by default)."""
     import os
 
     from polymarket_platform.config import Settings
@@ -28,6 +28,14 @@ def run(
 
     cfg = Settings(_env_file=config) if config else Settings()  # type: ignore[call-arg]
     configure_logging(cfg.log_level, cfg.log_json)
+
+    if not cfg.token_id:
+        typer.echo(
+            "Error: POLY_TOKEN_ID is required for single-token mode.\n"
+            "  Set it in .env, or use 'polymarket scan' for autonomous scanner mode.",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     store = SqliteStore(cfg.sqlite_path)
     engine = build_from_settings(cfg, store)
@@ -174,6 +182,108 @@ def reset_circuit_breaker() -> None:
     )
     cb.reset()
     typer.echo("Circuit breaker reset.")
+    store.close()
+
+
+@app.command()
+def scan(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to .env file"),
+) -> None:
+    """
+    Start the autonomous market scanner (Layer 2).
+
+    Scans Polymarket for active markets, detects opportunities, and
+    manages execution workers automatically. No POLY_TOKEN_ID required.
+    Works in dry-run mode without trading credentials.
+    """
+    import os
+
+    from polymarket_platform.config import Settings
+    from polymarket_platform.db.store import SqliteStore
+    from polymarket_platform.logging_utils import configure_logging
+    from polymarket_platform.scanner.orchestrator import Orchestrator
+
+    if config:
+        os.environ.setdefault("DOTENV_PATH", config)
+
+    cfg = Settings(_env_file=config) if config else Settings()  # type: ignore[call-arg]
+    configure_logging(cfg.log_level, cfg.log_json)
+
+    typer.echo("")
+    typer.echo("Polymarket Autonomous Scanner starting")
+    typer.echo(f"  DB:           {cfg.sqlite_path}")
+    typer.echo(f"  Dry-run:      {cfg.dry_run}")
+    typer.echo(f"  Poll interval:{cfg.scanner_poll_interval:.0f}s")
+    typer.echo(f"  Max markets:  {cfg.max_concurrent_markets}")
+    typer.echo(f"  Max capital:  ${cfg.max_total_capital_usd:.0f}")
+    typer.echo("")
+
+    store = SqliteStore(cfg.sqlite_path)
+    orchestrator = Orchestrator(cfg=cfg, store=store)
+
+    try:
+        asyncio.run(orchestrator.run())
+    finally:
+        store.close()
+
+
+@app.command(name="scan-status")
+def scan_status() -> None:
+    """Print scanner status: catalog, active workers, recent opportunities."""
+    import datetime
+
+    from polymarket_platform.config import Settings
+    from polymarket_platform.db.store import SqliteStore
+
+    cfg = Settings()
+    store = SqliteStore(cfg.sqlite_path)
+
+    sep = "-" * 60
+    typer.echo(f"\n{sep}")
+    typer.echo(f"  Polymarket Scanner Status ({cfg.sqlite_path})")
+    typer.echo(sep)
+
+    # Active tracked positions
+    positions = store.get_active_tracked_positions()
+    typer.echo(f"\n[Active Workers: {len(positions)}]")
+    if positions:
+        for p in positions:
+            age = datetime.datetime.fromtimestamp(p["started_ts"]).strftime("%H:%M:%S")
+            typer.echo(
+                f"  {p['token_id'][:24]}  slug={p.get('slug','?')}  "
+                f"capital=${p['capital_usd']:.0f}  started={age}"
+            )
+    else:
+        typer.echo("  None")
+
+    # Market catalog top-10
+    catalog = store.get_market_catalog(limit=10)
+    typer.echo(f"\n[Top Market Catalog (by score): {len(catalog)} shown]")
+    if catalog:
+        for m in catalog:
+            days = f"{m['days_to_expiry']:.1f}d" if m.get("days_to_expiry") else "?"
+            typer.echo(
+                f"  score={m['score']:.3f}  {m['outcome']}  liq=${m['liquidity']:.0f}"
+                f"  vol24={m['volume_24h']:.0f}  exp={days}  {(m.get('slug') or '')[:30]}"
+            )
+    else:
+        typer.echo("  No markets in catalog yet -- run 'polymarket scan' first")
+
+    # Recent opportunities
+    opportunities = store.get_recent_opportunities(limit=10)
+    typer.echo(f"\n[Recent Opportunities: {len(opportunities)} shown]")
+    if opportunities:
+        for opp in opportunities:
+            ts = datetime.datetime.fromtimestamp(opp["ts"]).strftime("%H:%M:%S")
+            typer.echo(
+                f"  {ts}  {opp['side']:4s}  conf={opp['confidence']:.2f}"
+                f"  edge={opp['expected_edge_bps']:.0f}bps"
+                f"  {opp['token_id'][:20]}  {opp['reason'][:50]}"
+            )
+    else:
+        typer.echo("  No opportunities recorded yet")
+
+    typer.echo(f"\n{sep}\n")
     store.close()
 
 

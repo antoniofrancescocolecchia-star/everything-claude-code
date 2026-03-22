@@ -88,8 +88,72 @@ _MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
-    # Future migrations go here:
-    # (2, "ALTER TABLE orders ADD COLUMN slippage_bps REAL;"),
+    # -----------------------------------------------------------------
+    # Migration 2 — Scanner / Layer 2 tables
+    # -----------------------------------------------------------------
+    (
+        2,
+        """
+        CREATE TABLE IF NOT EXISTS markets (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_id         TEXT    NOT NULL UNIQUE,
+            condition_id     TEXT    NOT NULL,
+            slug             TEXT,
+            event_slug       TEXT,
+            question         TEXT,
+            outcome          TEXT,
+            end_date_ts      REAL,
+            days_to_expiry   REAL,
+            liquidity        REAL    NOT NULL DEFAULT 0.0,
+            volume_24h       REAL    NOT NULL DEFAULT 0.0,
+            score            REAL    NOT NULL DEFAULT 0.0,
+            last_scan_ts     REAL    NOT NULL DEFAULT 0.0,
+            created_ts       REAL    NOT NULL DEFAULT 0.0
+        );
+        CREATE INDEX IF NOT EXISTS markets_score    ON markets(score DESC);
+        CREATE INDEX IF NOT EXISTS markets_token_id ON markets(token_id);
+
+        CREATE TABLE IF NOT EXISTS market_snapshots (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          REAL    NOT NULL,
+            token_id    TEXT    NOT NULL,
+            midpoint    REAL,
+            spread_bps  REAL,
+            liquidity   REAL,
+            volume_24h  REAL
+        );
+        CREATE INDEX IF NOT EXISTS msnap_token_ts ON market_snapshots(token_id, ts);
+
+        CREATE TABLE IF NOT EXISTS opportunities (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts                 REAL    NOT NULL,
+            token_id           TEXT    NOT NULL,
+            slug               TEXT,
+            event_slug         TEXT,
+            outcome            TEXT,
+            side               TEXT    NOT NULL,
+            confidence         REAL    NOT NULL,
+            expected_edge_bps  REAL    NOT NULL,
+            reason             TEXT    NOT NULL,
+            midpoint           REAL,
+            spread_bps         REAL
+        );
+        CREATE INDEX IF NOT EXISTS opp_ts    ON opportunities(ts DESC);
+        CREATE INDEX IF NOT EXISTS opp_token ON opportunities(token_id, ts DESC);
+
+        CREATE TABLE IF NOT EXISTS tracked_positions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            token_id    TEXT    NOT NULL UNIQUE,
+            slug        TEXT,
+            started_ts  REAL    NOT NULL DEFAULT 0.0,
+            stopped_ts  REAL,
+            status      TEXT    NOT NULL DEFAULT 'active',
+            capital_usd REAL    NOT NULL DEFAULT 0.0,
+            stop_reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS tpos_status ON tracked_positions(status);
+        """,
+    ),
 ]
 
 

@@ -33,7 +33,18 @@ class _EngineState:
 
 
 def build_from_settings(cfg: Settings, store: SqliteStore) -> TradingEngine:
-    """Convenience factory — builds a fully-wired engine from Settings."""
+    """
+    Convenience factory -- builds a fully-wired engine from Settings.
+
+    Raises ValueError if token_id is not set (required for single-token mode).
+    In scanner mode, the Orchestrator sets token_id on the per-worker config copy
+    before calling this function.
+    """
+    if not cfg.token_id:
+        raise ValueError(
+            "token_id is required to build a TradingEngine. "
+            "Set POLY_TOKEN_ID in .env, or use 'polymarket scan' for scanner mode."
+        )
     clob_cfg = ClobConfig(
         host=cfg.clob_host,
         chain_id=cfg.chain_id,

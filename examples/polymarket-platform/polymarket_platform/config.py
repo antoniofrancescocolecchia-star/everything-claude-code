@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Hosts ──────────────────────────────────────────────────────────────────
+    # -- Hosts ----------------------------------------------------------------
     clob_host: str = Field(default="https://clob.polymarket.com", alias="POLY_CLOB_HOST")
     clob_ws_url: str = Field(
         default="wss://ws-subscriptions-clob.polymarket.com/ws/market",
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     gamma_host: str = Field(default="https://gamma-api.polymarket.com", alias="POLY_GAMMA_HOST")
     chain_id: int = Field(default=137, alias="POLY_CHAIN_ID")
 
-    # ── Identity ───────────────────────────────────────────────────────────────
+    # -- Identity -------------------------------------------------------------
     private_key: SecretStr | None = Field(default=None, alias="POLY_PRIVATE_KEY")
     funder_address: str | None = Field(default=None, alias="POLY_FUNDER_ADDRESS")
     signature_type: int = Field(default=0, alias="POLY_SIGNATURE_TYPE")
@@ -29,17 +29,19 @@ class Settings(BaseSettings):
     api_secret: SecretStr | None = Field(default=None, alias="POLY_API_SECRET")
     api_passphrase: SecretStr | None = Field(default=None, alias="POLY_API_PASSPHRASE")
 
-    # ── Market ─────────────────────────────────────────────────────────────────
-    token_id: str = Field(..., alias="POLY_TOKEN_ID")
+    # -- Market (optional when scanner discovers tokens dynamically) ----------
+    # Required for single-token mode (polymarket run).
+    # Optional for scanner mode (polymarket scan).
+    token_id: str | None = Field(default=None, alias="POLY_TOKEN_ID")
 
-    # ── Bot mode ───────────────────────────────────────────────────────────────
+    # -- Bot mode -------------------------------------------------------------
     dry_run: bool = Field(default=True, alias="BOT_DRY_RUN")
     sqlite_path: str = Field(default="platform.sqlite3", alias="BOT_SQLITE_PATH")
     log_json: bool = Field(default=False, alias="BOT_LOG_JSON")
     log_level: str = Field(default="INFO", alias="BOT_LOG_LEVEL")
     kill_switch_path: str = Field(default="./KILL_SWITCH", alias="BOT_KILL_SWITCH_PATH")
 
-    # ── Feed ───────────────────────────────────────────────────────────────────
+    # -- Feed -----------------------------------------------------------------
     feed_fallback_after_failures: int = Field(default=5, alias="FEED_FALLBACK_AFTER_FAILURES")
     feed_poll_interval_seconds: float = Field(default=2.0, alias="FEED_POLL_INTERVAL_SECONDS")
     feed_max_staleness_seconds: float = Field(default=30.0, alias="FEED_MAX_STALENESS_SECONDS")
@@ -47,37 +49,79 @@ class Settings(BaseSettings):
         default=60.0, alias="FEED_WS_MAX_RECONNECT_BACKOFF"
     )
 
-    # ── Strategy (threshold) ──────────────────────────────────────────────────
+    # -- Strategy (threshold) -------------------------------------------------
     buy_threshold: float = Field(default=0.45, alias="BUY_THRESHOLD")
     sell_threshold: float = Field(default=0.55, alias="SELL_THRESHOLD")
     buy_amount_usd: float = Field(default=10.0, alias="STRAT_BUY_AMOUNT_USD")
     sell_shares: float = Field(default=5.0, alias="STRAT_SELL_SHARES")
     order_type: str = Field(default="FAK", alias="STRAT_ORDER_TYPE")
 
-    # ── Profitability gate ─────────────────────────────────────────────────────
+    # -- Profitability gate ---------------------------------------------------
     fee_taker_bps: float = Field(default=200.0, alias="FEE_TAKER_BPS")
     min_expected_edge_bps: float = Field(default=50.0, alias="MIN_EXPECTED_EDGE_BPS")
 
-    # ── Risk ───────────────────────────────────────────────────────────────────
+    # -- Risk -----------------------------------------------------------------
     max_position_shares: float = Field(default=50.0, alias="RISK_MAX_POSITION_SHARES")
     max_usd_spend: float = Field(default=200.0, alias="RISK_MAX_USD_SPEND")
     min_seconds_between_orders: float = Field(default=5.0, alias="RISK_MIN_SECONDS_BETWEEN_ORDERS")
     max_open_orders: int = Field(default=10, alias="RISK_MAX_OPEN_ORDERS")
 
-    # ── Circuit breaker ────────────────────────────────────────────────────────
+    # -- Circuit breaker ------------------------------------------------------
     cb_max_consecutive_losses: int = Field(default=5, alias="CB_MAX_CONSECUTIVE_LOSSES")
     cb_max_daily_drawdown_usd: float = Field(default=50.0, alias="CB_MAX_DAILY_DRAWDOWN_USD")
     cb_max_decision_latency_ms: float = Field(default=500.0, alias="CB_MAX_DECISION_LATENCY_MS")
 
-    # ── Heartbeat ─────────────────────────────────────────────────────────────
+    # -- Heartbeat ------------------------------------------------------------
     heartbeat_enabled: bool = Field(default=False, alias="BOT_HEARTBEAT_ENABLED")
     heartbeat_interval_seconds: float = Field(default=15.0, alias="BOT_HEARTBEAT_INTERVAL_SECONDS")
 
-    # ── Position refresh ──────────────────────────────────────────────────────
+    # -- Position refresh -----------------------------------------------------
     position_refresh_interval_seconds: float = Field(
         default=10.0, alias="BOT_POSITION_REFRESH_INTERVAL_SECONDS"
     )
 
-    # ── Retry ─────────────────────────────────────────────────────────────────
+    # -- Retry ----------------------------------------------------------------
     max_retries: int = Field(default=4, alias="BOT_MAX_RETRIES")
     request_timeout_seconds: float = Field(default=15.0, alias="BOT_REQUEST_TIMEOUT_SECONDS")
+
+    # =========================================================================
+    # Scanner / Layer 2 settings
+    # =========================================================================
+
+    # Master switch: enable autonomous market scanning.
+    # When false, the bot operates on POLY_TOKEN_ID only (single-token mode).
+    scanner_enabled: bool = Field(default=False, alias="SCANNER_ENABLED")
+
+    # How often the scanner polls Gamma for new markets (seconds).
+    scanner_poll_interval: float = Field(
+        default=120.0, alias="SCANNER_POLL_INTERVAL_SECONDS"
+    )
+
+    # Market filters (hard limits; markets that fail any are excluded).
+    min_liquidity_usd: float = Field(default=1000.0, alias="MIN_LIQUIDITY_USD")
+    min_volume_24h_usd: float = Field(default=200.0, alias="MIN_VOLUME_24H_USD")
+    max_spread_bps: float = Field(default=800.0, alias="MAX_SPREAD_BPS")
+    min_days_to_expiry: float = Field(default=1.0, alias="MIN_DAYS_TO_EXPIRY")
+
+    # Worker pool limits.
+    max_concurrent_markets: int = Field(default=3, alias="MAX_CONCURRENT_MARKETS")
+    max_total_capital_usd: float = Field(default=100.0, alias="MAX_TOTAL_CAPITAL_USD")
+    max_capital_per_market_usd: float = Field(default=30.0, alias="MAX_CAPITAL_PER_MARKET_USD")
+
+    # Opportunity quality thresholds.
+    opportunity_min_confidence: float = Field(default=0.20, alias="OPPORTUNITY_MIN_CONFIDENCE")
+    opportunity_min_edge_bps: float = Field(default=50.0, alias="OPPORTUNITY_MIN_EDGE_BPS")
+
+    # How far back to look when computing historical baselines.
+    market_history_lookback_minutes: int = Field(
+        default=60, alias="MARKET_HISTORY_LOOKBACK_MINUTES"
+    )
+
+    # Maximum number of markets to fetch from Gamma per poll cycle.
+    market_discovery_limit: int = Field(default=100, alias="MARKET_DISCOVERY_LIMIT")
+
+    # How often the orchestrator rebalances its worker pool (seconds).
+    # If 0, rebalancing happens every cycle (i.e. controlled by scanner_poll_interval).
+    orchestrator_rebalance_seconds: float = Field(
+        default=0.0, alias="ORCHESTRATOR_REBALANCE_SECONDS"
+    )

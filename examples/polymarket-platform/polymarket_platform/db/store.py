@@ -5,9 +5,14 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from polymarket_platform.db.migrations import migrate
+
+if TYPE_CHECKING:
+    from polymarket_platform.scanner.catalog import MarketRecord
+    from polymarket_platform.scanner.clob_probe import ClobQuote
+    from polymarket_platform.scanner.detector import OpportunityRecord
 
 
 @dataclass
@@ -275,3 +280,223 @@ class SqliteStore:
     def close(self) -> None:
         with self._lock:
             self._conn.close()
+
+    # =========================================================================
+    # Scanner / Layer 2 methods
+    # =========================================================================
+
+    # -- markets --------------------------------------------------------------
+
+    def upsert_markets(self, records: list[MarketRecord]) -> None:
+        """Insert or update market catalog entries."""
+        now = time.time()
+        with self._lock:
+            for rec in records:
+                self._conn.execute(
+                    """
+                    INSERT INTO markets
+                      (token_id, condition_id, slug, event_slug, question, outcome,
+                       end_date_ts, days_to_expiry, liquidity, volume_24h, score,
+                       last_scan_ts, created_ts)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(token_id) DO UPDATE SET
+                      condition_id  = excluded.condition_id,
+                      slug          = excluded.slug,
+                      event_slug    = excluded.event_slug,
+                      question      = excluded.question,
+                      outcome       = excluded.outcome,
+                      end_date_ts   = excluded.end_date_ts,
+                      days_to_expiry= excluded.days_to_expiry,
+                      liquidity     = excluded.liquidity,
+                      volume_24h    = excluded.volume_24h,
+                      score         = excluded.score,
+                      last_scan_ts  = excluded.last_scan_ts
+                    """,
+                    (
+                        rec.token_id,
+                        rec.condition_id,
+                        rec.slug,
+                        rec.event_slug,
+                        rec.question,
+                        rec.outcome,
+                        rec.end_date_ts,
+                        rec.days_to_expiry,
+                        rec.liquidity,
+                        rec.volume_24h,
+                        rec.score,
+                        now,
+                        now,
+                    ),
+                )
+            self._conn.commit()
+
+    def get_market_catalog(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Return top markets by score."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM markets ORDER BY score DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- market_snapshots -----------------------------------------------------
+
+    def insert_market_snapshots(
+        self,
+        records: list[MarketRecord],
+        clob_quotes: dict[str, ClobQuote],
+    ) -> None:
+        """Persist one price/spread observation per market token."""
+        now = time.time()
+        with self._lock:
+            for rec in records:
+                quote = clob_quotes.get(rec.token_id)
+                self._conn.execute(
+                    """
+                    INSERT INTO market_snapshots
+                      (ts, token_id, midpoint, spread_bps, liquidity, volume_24h)
+                    VALUES (?,?,?,?,?,?)
+                    """,
+                    (
+                        now,
+                        rec.token_id,
+                        quote.midpoint if quote else None,
+                        quote.spread_bps if quote else None,
+                        rec.liquidity,
+                        rec.volume_24h,
+                    ),
+                )
+            self._conn.commit()
+
+    def get_recent_midpoints(
+        self, token_ids: list[str], *, since_ts: float
+    ) -> dict[str, list[float]]:
+        """
+        Return historical midpoints for given tokens since `since_ts`.
+        Result is ordered oldest-first per token.
+        """
+        out: dict[str, list[float]] = {}
+        if not token_ids:
+            return out
+        placeholders = ",".join("?" * len(token_ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT token_id, midpoint FROM market_snapshots
+                WHERE token_id IN ({placeholders})
+                  AND ts >= ?
+                  AND midpoint IS NOT NULL
+                ORDER BY token_id, ts ASC
+                """,
+                (*token_ids, since_ts),
+            ).fetchall()
+        for row in rows:
+            out.setdefault(row["token_id"], []).append(float(row["midpoint"]))
+        return out
+
+    def get_recent_spreads(
+        self, token_ids: list[str], *, since_ts: float
+    ) -> dict[str, list[float]]:
+        """Return historical spread_bps for given tokens since `since_ts` (oldest first)."""
+        out: dict[str, list[float]] = {}
+        if not token_ids:
+            return out
+        placeholders = ",".join("?" * len(token_ids))
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT token_id, spread_bps FROM market_snapshots
+                WHERE token_id IN ({placeholders})
+                  AND ts >= ?
+                  AND spread_bps IS NOT NULL
+                ORDER BY token_id, ts ASC
+                """,
+                (*token_ids, since_ts),
+            ).fetchall()
+        for row in rows:
+            out.setdefault(row["token_id"], []).append(float(row["spread_bps"]))
+        return out
+
+    # -- opportunities --------------------------------------------------------
+
+    def insert_opportunities(self, records: list[OpportunityRecord]) -> None:
+        """Persist detected opportunity signals."""
+        with self._lock:
+            for rec in records:
+                self._conn.execute(
+                    """
+                    INSERT INTO opportunities
+                      (ts, token_id, slug, event_slug, outcome, side,
+                       confidence, expected_edge_bps, reason, midpoint, spread_bps)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        rec.ts,
+                        rec.token_id,
+                        rec.slug,
+                        rec.event_slug,
+                        rec.outcome,
+                        rec.side,
+                        rec.confidence,
+                        rec.expected_edge_bps,
+                        rec.reason,
+                        rec.midpoint,
+                        rec.spread_bps,
+                    ),
+                )
+            self._conn.commit()
+
+    def get_recent_opportunities(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM opportunities ORDER BY ts DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- tracked_positions ----------------------------------------------------
+
+    def upsert_tracked_position(
+        self,
+        *,
+        token_id: str,
+        slug: str | None = None,
+        capital_usd: float = 0.0,
+    ) -> None:
+        now = time.time()
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO tracked_positions
+                  (token_id, slug, started_ts, status, capital_usd)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(token_id) DO UPDATE SET
+                  slug        = excluded.slug,
+                  status      = 'active',
+                  capital_usd = excluded.capital_usd,
+                  started_ts  = CASE WHEN tracked_positions.status != 'active'
+                                     THEN excluded.started_ts
+                                     ELSE tracked_positions.started_ts END,
+                  stopped_ts  = NULL,
+                  stop_reason = NULL
+                """,
+                (token_id, slug, now, "active", capital_usd),
+            )
+            self._conn.commit()
+
+    def mark_tracked_position_stopped(self, token_id: str, *, reason: str = "") -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE tracked_positions
+                SET status = 'stopped', stopped_ts = ?, stop_reason = ?
+                WHERE token_id = ?
+                """,
+                (time.time(), reason, token_id),
+            )
+            self._conn.commit()
+
+    def get_active_tracked_positions(self) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM tracked_positions WHERE status = 'active' ORDER BY started_ts DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
